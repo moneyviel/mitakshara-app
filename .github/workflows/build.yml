@@ -1,0 +1,58 @@
+name: Build Mitakshara
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - run: npm run dist:mac
+        env: { CSC_IDENTITY_AUTO_DISCOVERY: "false" }
+      - name: Start-up test on a real Mac
+        run: |
+          set -e
+          APP=$(ls -d dist/mac-arm64/Mitakshara.app)
+          codesign -dv "$APP" 2>&1 | head -5 || true
+          export MITAKSHARA_DATA="$RUNNER_TEMP/mk-data"
+          "$APP/Contents/MacOS/Mitakshara" > "$RUNNER_TEMP/mk.log" 2>&1 &
+          sleep 20
+          if pgrep -x Mitakshara > /dev/null; then echo "Mitakshara started and is running"; else echo "Mitakshara did not stay running"; cat "$RUNNER_TEMP/mk.log"; exit 1; fi
+          screencapture -x "$RUNNER_TEMP/mac-startup.png" || true
+          test -f "$MITAKSHARA_DATA/licence/installation.json" && echo "Installation ID created: $(cat $MITAKSHARA_DATA/licence/installation.json)"
+          pkill -x Mitakshara || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mitakshara-Mac
+          path: |
+            dist/*.dmg
+            dist/*.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: Mac-startup-screenshot, path: "${{ runner.temp }}/mac-startup.png", if-no-files-found: ignore }
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - run: npm run dist:win
+      - name: Start-up test on Windows
+        shell: pwsh
+        run: |
+          $env:MITAKSHARA_DATA = "$env:RUNNER_TEMP\mk-data"
+          $p = Start-Process -FilePath "dist\win-unpacked\Mitakshara.exe" -PassThru
+          Start-Sleep -Seconds 20
+          if (Get-Process -Id $p.Id -ErrorAction SilentlyContinue) { "Mitakshara started and is running" } else { "Mitakshara did not stay running"; exit 1 }
+          Get-Content "$env:MITAKSHARA_DATA\licence\installation.json"
+          Stop-Process -Id $p.Id -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mitakshara-Windows
+          path: dist/*.exe

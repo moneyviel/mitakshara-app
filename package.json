@@ -1,0 +1,38 @@
+{
+  "name": "mitakshara",
+  "productName": "Mitakshara",
+  "version": "0.1.0",
+  "description": "Mitakshara: private, offline-first law chamber workspace",
+  "author": "MoneyViel",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:win": "electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "38.2.0",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "com.moneyviel.mitakshara",
+    "productName": "Mitakshara",
+    "copyright": "Copyright © 2026 MoneyViel",
+    "files": ["main/**", "renderer/**", "package.json"],
+    "asar": true,
+    "directories": { "output": "dist", "buildResources": "build" },
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }, { "target": "zip", "arch": ["arm64", "x64"] }],
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "icon": "build/icon.png"
+    },
+    "dmg": { "title": "Mitakshara", "writeUpdateInfo": false },
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.png" },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "shortcutName": "Mitakshara", "differentialPackage": false }
+  }
+}
