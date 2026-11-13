@@ -175,6 +175,7 @@ const TABS = [
   ['Today', '&#9728;'], ['Clients', '&#128101;'], ['Cases', '&#128193;'], ['Diary', '&#128197;'],
   ['Law Library', '&#128214;'], ['Accounts', '&#8377;'], ['Settings', '&#9881;'],
 ];
+const DONE_STAGES = 2;
 const STAGES = [
   ['Secure app, licence and encrypted storage', 'Done'],
   ['Clients and documents, with typing suggestions', 'Clients'],
@@ -207,7 +208,7 @@ PAGES.Today = () => {
     <div class="card stat"><div class="muted small">Licence</div><div class="v">Active</div><div class="small muted">Works offline until ${fd(L.offlineUntil)}</div></div>
     <div class="card stat"><div class="muted small">Version</div><div class="v">${esc(st.version)}</div><div class="small muted">Updates install automatically (Stage 8)</div></div></div>
    <div class="card"><h2>Building Mitakshara, stage by stage</h2>
-    ${STAGES.map(([t], i) => `<div class="stage ${i === 0 ? 'done' : i === 1 ? 'now' : ''}"><div class="n">${i === 0 ? '&#10003;' : i + 1}</div><div><b>${t}</b><div class="small muted">${i === 0 ? 'Ready: you are using it now' : i === 1 ? 'Next' : 'Planned'}</div></div></div>`).join('')}</div>`);
+    ${STAGES.map(([t], i) => `<div class="stage ${i < DONE_STAGES ? 'done' : i === DONE_STAGES ? 'now' : ''}"><div class="n">${i < DONE_STAGES ? '&#10003;' : i + 1}</div><div><b>${t}</b><div class="small muted">${i < DONE_STAGES ? 'Ready to use' : i === DONE_STAGES ? 'Next' : 'Planned'}</div></div></div>`).join('')}</div>`);
 };
 PAGES.soon = () => {
   const i = STAGES.findIndex(s => s[1] === S.tab && s[1] !== 'Done');
@@ -215,7 +216,7 @@ PAGES.soon = () => {
   page(`<div class="top"><div><h1>${esc(S.tab)}</h1><div class="muted">This section is being built.</div></div></div>
    <div class="card soon"><h2>Coming in ${items.map(x => 'Stage ' + (x.n + 1)).join(' and ') || 'a later stage'}</h2>${items.map(x => `<div class="row"><span>${esc(x.s[0])}</span><span class="tag grey">Stage ${x.n + 1}</span></div>`).join('')}</div>`);
 };
-['Clients', 'Cases', 'Diary', 'Law Library', 'Accounts'].forEach(t => PAGES[t] = PAGES.soon);
+['Cases', 'Diary', 'Law Library', 'Accounts'].forEach(t => PAGES[t] = PAGES.soon);
 PAGES.Settings = async () => {
   const st = S.status; const L = st.licence;
   page(`<div class="top"><div><h1>Settings</h1><div class="muted">Security and licence. More settings arrive with each stage.</div></div></div>
@@ -264,4 +265,3 @@ PAGES.Settings = async () => {
 window.mk.onLocked(reason => { document.querySelectorAll('.modal').forEach(m => m.remove()); start(reason); });
 window.mk.onLicenceEnded(msg => start(msg));
 document.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'l' && S.status?.vault?.unlocked) { e.preventDefault(); call('lock').then(() => start('manual')); } });
-start().catch(e => { root().innerHTML = `<div class="formside"><div class="formbox"><h1>Something went wrong</h1><p class="muted">${esc(e.message)}</p></div></div>`; });

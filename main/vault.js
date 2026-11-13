@@ -186,6 +186,9 @@ class Vault {
     fs.renameSync(t, this.dataPath);
   }
 
+  encryptBlob(buf, aad) { if (!this.mk) throw new Error('Locked'); return seal(this.mk, buf, aad); }
+  decryptBlob(blob, aad) { if (!this.mk) throw new Error('Locked'); return open(this.mk, blob, aad); }
+
   lock() { if (this.mk) this.mk.fill(0); this.mk = null; this.data = null; }
 }
 

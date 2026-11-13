@@ -4,11 +4,31 @@ const path = require('path');
 const { Vault } = require('./vault');
 const WORDS = require('./words');
 const fs = require('fs');
+const crypto = require('crypto');
+const os = require('os');
+let openTemp = null; // folder for files opened for viewing; wiped on lock and quit
+function wipeTemp() { if (openTemp) { try { fs.rmSync(openTemp, { recursive: true, force: true }); } catch {} openTemp = null; } }
+const MAX_FILE = 250 * 1024 * 1024;
+function docsDir() { const d = path.join(vault.dir, 'docs'); fs.mkdirSync(d, { recursive: true }); return d; }
+function storeFile(p) {
+  const st = fs.statSync(p);
+  if (!st.isFile()) throw new Error('Not a file: ' + path.basename(p));
+  if (st.size > MAX_FILE) throw new Error(path.basename(p) + ' is larger than 250 MB.');
+  const buf = fs.readFileSync(p);
+  const fid = crypto.randomUUID();
+  fs.writeFileSync(path.join(docsDir(), fid + '.enc'), vault.encryptBlob(buf, 'file:' + fid), { mode: 0o600 });
+  return { fid, filename: path.basename(p), size: st.size, sha256: crypto.createHash('sha256').update(buf).digest('hex'), added: new Date().toISOString() };
+}
+function readStored(fid) {
+  if (!/^[0-9a-f-]{36}$/.test(fid)) throw new Error('Bad file id');
+  return vault.decryptBlob(fs.readFileSync(path.join(docsDir(), fid + '.enc')), 'file:' + fid);
+}
 const { Licence } = require('./licence');
 
 const DEV = process.env.MITAKSHARA_DEV === '1';
 if (process.env.MITAKSHARA_DATA) app.setPath('userData', process.env.MITAKSHARA_DATA);
 app.enableSandbox();
+app.commandLine.appendSwitch('lang', 'en-IN'); // Indian date format (dd/mm/yyyy) in date fields
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 
 let win = null, vault = null, licence = null, idleTimer = null;
@@ -43,6 +63,7 @@ function menu() {
 }
 
 function lockNow(reason) {
+  wipeTemp();
   if (vault && vault.isUnlocked()) { vault.lock(); if (win) win.webContents.send('locked', reason); }
 }
 function startIdleWatch() {
@@ -109,6 +130,41 @@ const handlers = {
       return { saved: true, file: r.filePath };
     } finally { pw.destroy(); }
   },
+  async addFiles({ paths }) {
+    needOpen();
+    let list = paths;
+    if ((!list || !list.length) && DEV && process.env.MITAKSHARA_TEST_FILES) list = process.env.MITAKSHARA_TEST_FILES.split(',');
+    if (!list || !list.length) {
+      const r = await dialog.showOpenDialog(win, { title: 'Attach files', properties: ['openFile', 'multiSelections'] });
+      if (r.canceled) return [];
+      list = r.filePaths;
+    }
+    if (!Array.isArray(list) || list.length > 50) throw new Error('Please attach up to 50 files at a time.');
+    return list.map(p => storeFile(String(p)));
+  },
+  async openFile({ fid, filename }) {
+    needOpen();
+    if (!openTemp) openTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'mitakshara-'));
+    const safe = String(filename || 'file').replace(/[\\/:*?"<>|]/g, '_').slice(0, 120);
+    const out = path.join(openTemp, fid.slice(0, 8) + '-' + safe);
+    fs.writeFileSync(out, readStored(fid), { mode: 0o600 });
+    const err = await shell.openPath(out);
+    if (err) throw new Error('Could not open: ' + err);
+    return true;
+  },
+  async exportFile({ fid, filename }) {
+    needOpen();
+    const r = await dialog.showSaveDialog(win, { title: 'Save a copy', defaultPath: path.join(app.getPath('downloads'), String(filename || 'file')) });
+    if (r.canceled || !r.filePath) return false;
+    fs.writeFileSync(r.filePath, readStored(fid));
+    return true;
+  },
+  async deleteFile({ fid }) {
+    needOpen();
+    if (!/^[0-9a-f-]{36}$/.test(fid)) throw new Error('Bad file id');
+    fs.rmSync(path.join(docsDir(), fid + '.enc'), { force: true });
+    return true;
+  },
   async getData({ key }) { needOpen(); return vault.data[key] ?? null; },
   async setData({ key, value }) { needOpen(); if (!/^[a-z_]{2,40}$/.test(key)) throw new Error('bad key'); vault.data[key] = value; vault.save(); return true; },
 };
@@ -136,5 +192,6 @@ app.whenReady().then(() => {
   setTimeout(async () => { try { const s = await licence.status(); if (s.valid && s.needsRefresh) { const r = await licence.refresh(); if (r.ended && win) win.webContents.send('licence-ended', r.ended); } } catch {} }, 5000);
 });
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-app.on('window-all-closed', () => { if (vault) vault.lock(); app.quit(); });
+app.on('window-all-closed', () => { wipeTemp(); if (vault) vault.lock(); app.quit(); });
+app.on('will-quit', wipeTemp);
 app.on('web-contents-created', (_e, wc) => { wc.on('will-attach-webview', ev => ev.preventDefault()); });
