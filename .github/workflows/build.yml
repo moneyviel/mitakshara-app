@@ -2,7 +2,6 @@ name: Build Mitakshara
 on:
   push:
     branches: [main]
-    tags: ['v*']
   workflow_dispatch:
 
 jobs:
@@ -67,17 +66,25 @@ jobs:
           name: Mitakshara-Windows
           path: dist/*.exe
 
-  # On a version tag (v1.2.3): publish a GitHub Release that the in-app updater and the download page use
+  # When package.json has a new version: publish a GitHub Release (used by the in-app updater and the download page)
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
     needs: [mac, windows]
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          V=$(node -p "require('./package.json').version")
+          echo "tag=v$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" --repo "${{ github.repository }}" > /dev/null 2>&1; then echo "new=no" >> "$GITHUB_OUTPUT"; echo "Release v$V already exists"; else echo "new=yes" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/download-artifact@v4
+        if: steps.v.outputs.new == 'yes'
         with: { path: art }
       - name: Make update manifests and publish the release
-        env: { GH_TOKEN: "${{ github.token }}", TAG: "${{ github.ref_name }}", REPO: "${{ github.repository }}" }
+        if: steps.v.outputs.new == 'yes'
+        env: { GH_TOKEN: "${{ github.token }}", TAG: "${{ steps.v.outputs.tag }}", REPO: "${{ github.repository }}" }
         run: |
           set -e
           V="${TAG#v}"; mkdir -p out
@@ -88,4 +95,4 @@ jobs:
           man darwin x64 "Mitakshara-$V-x64.zip"
           man darwin arm64 "Mitakshara-$V-arm64.zip"
           ls -la out
-          gh release create "$TAG" out/* --repo "$REPO" --title "Mitakshara $V" --notes "Mitakshara $V"
+          gh release create "$TAG" out/* --repo "$REPO" --target "${{ github.sha }}" --title "Mitakshara $V" --notes "Mitakshara $V"

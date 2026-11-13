@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Mitakshara licence admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--navy:#0F2A44;--gold:#B08D57;--line:#E6E0D4;--muted:#6B7684;--bg:#F7F5F0}
+*{box-sizing:border-box}body{margin:0;font:14px -apple-system,"Segoe UI",Arial,sans-serif;background:var(--bg);color:#1F2933}
+header{background:var(--navy);color:#fff;padding:16px 28px;display:flex;align-items:center;gap:14px}header b{font-size:18px}
+main{max-width:1180px;margin:0 auto;padding:22px}.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+h2{margin:0 0 12px;font-size:16px;color:var(--navy)}label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
+input,select{width:100%;padding:9px 11px;border:1px solid #D9D0BE;border-radius:8px;font:inherit}
+button{border:none;border-radius:8px;padding:9px 15px;background:var(--gold);color:#fff;font-weight:600;cursor:pointer;font:inherit}
+button.ghost{background:#fff;color:var(--navy);border:1px solid #D9D0BE}button.sm{padding:5px 10px;font-size:12.5px}button.red{background:#C62828}
+.row{display:grid;grid-template-columns:2fr 1fr 2fr auto;gap:12px;align-items:end}.flex{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid #F0ECE3;vertical-align:top;font-size:13px}th{color:var(--muted);font-weight:600;font-size:12px}
+.tag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600}.ok{background:#E2F1E8;color:#2E7D4F}.bad{background:#FBE1E1;color:#C62828}.grey{background:#EEF0F2;color:#4A5563}
+.key{font:bold 17px monospace;background:#F4EFE4;padding:12px;border-radius:8px;word-break:break-all;margin-top:10px}.muted{color:var(--muted)}.err{color:#C62828;margin-top:8px}.hidden{display:none}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.kpi{background:#FBF8F2;border-radius:10px;padding:12px 14px}.kpi b{display:block;font-size:22px;color:var(--navy)}
+</style></head><body>
+<header><b>Mitakshara</b><span>Licence admin (for the seller only)</span></header>
+<main>
+ <div class="card" id="login"><h2>Sign in</h2><div class="muted">Your admin password is never stored in this file. After 8 wrong tries the server waits an hour.</div>
+  <label>Admin password</label><input id="pw" type="password" autocomplete="off"><div class="flex" style="margin-top:12px"><button id="go">Open</button></div><div class="err" id="lerr"></div></div>
+ <div id="app" class="hidden">
+  <div class="card"><div class="kpis"><div class="kpi">Licences<b id="k1">0</b></div><div class="kpi">Active on a computer<b id="k2">0</b></div><div class="kpi">Not yet activated<b id="k3">0</b></div><div class="kpi">Revoked<b id="k4">0</b></div></div></div>
+  <div class="card"><h2>Issue a new licence key</h2><div class="row"><div><label>Buyer's email *</label><input id="em" type="email"></div><div><label>Plan</label><select id="plan"><option>standard</option><option>trial</option><option>firm</option></select></div><div><label>Note (name, invoice no.)</label><input id="note"></div><div><button id="issue">Issue key</button></div></div>
+   <label style="display:flex;gap:6px;align-items:center;margin-top:12px"><input type="checkbox" id="mail" style="width:auto" checked> Email the key to the buyer (needs email sending set up; otherwise copy and send it yourself)</label>
+   <div id="issued" class="hidden"></div></div>
+  <div class="card"><div class="flex" style="justify-content:space-between"><h2 style="margin:0">Licences</h2><div class="flex"><input id="q" placeholder="Search email or note" style="width:260px"><button class="ghost sm" id="reload">Refresh</button></div></div>
+   <table><thead><tr><th>Email</th><th>Plan / note</th><th>Key ends</th><th>Status</th><th>Computer</th><th>Moves used</th><th>Issued</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+  <div class="card"><h2>Change admin password</h2><div class="row"><div><label>New password (12+ characters)</label><input id="np" type="password"></div><div></div><div></div><div><button class="ghost" id="chg">Change</button></div></div></div>
+ </div>
+</main>
+<script>
+const URL_ = 'https://fyvplhtpsxpxvvsilzqq.supabase.co/functions/v1/mitakshara-licence';
+let PW = '', LIST = [];
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fd = d => d ? new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '-';
+async function api(action, extra = {}) {
+  const r = await fetch(URL_, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, admin_pw: PW, ...extra }) });
+  const j = await r.json().catch(() => ({ ok: false, error: 'No answer from the server.' })); if (!j.ok) throw new Error(j.error || 'Failed'); return j;
+}
+function draw() {
+  const t = $('#q').value.trim().toLowerCase();
+  const act = l => (l.activations || []).find(a => a.active);
+  $('#k1').textContent = LIST.length; $('#k2').textContent = LIST.filter(act).length; $('#k3').textContent = LIST.filter(l => !(l.activations || []).length).length; $('#k4').textContent = LIST.filter(l => l.status !== 'active').length;
+  $('#rows').innerHTML = LIST.filter(l => !t || (l.email + ' ' + (l.note || '')).toLowerCase().includes(t)).map(l => { const a = act(l); return `<tr>
+    <td><b>${esc(l.email)}</b></td><td>${esc(l.plan)}<div class="muted">${esc(l.note || '')}</div></td><td style="font-family:monospace">...${esc(l.key_hint)}</td>
+    <td><span class="tag ${l.status === 'active' ? 'ok' : 'bad'}">${esc(l.status)}</span></td>
+    <td>${a ? `${esc(a.installation_id)}<div class="muted">${esc(a.platform)} · v${esc(a.app_version)} · seen ${fd(a.last_seen)}</div>` : (l.activations || []).length ? '<span class="tag grey">released</span>' : '<span class="tag grey">not activated</span>'}</td>
+    <td>${l.moves_used} of 3</td><td>${fd(l.created_at)}</td>
+    <td><div class="flex">${a ? `<button class="ghost sm" data-rel="${l.id}" title="Use when the buyer's old computer is lost or dead">Free the computer</button>` : ''}${l.moves_used ? `<button class="ghost sm" data-rm="${l.id}">Reset moves</button>` : ''}${l.status === 'active' ? `<button class="red sm" data-rev="${l.id}">Revoke</button>` : `<button class="sm" data-act="${l.id}">Re-activate</button>`}</div></td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">No licences.</td></tr>';
+  document.querySelectorAll('[data-rel]').forEach(b => b.onclick = () => act2('admin_release', b.dataset.rel, 'Free the computer? The buyer can then activate on a new computer.'));
+  document.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => act2('admin_reset_moves', b.dataset.rm, 'Reset the move count to 0?'));
+  document.querySelectorAll('[data-rev]').forEach(b => b.onclick = () => act2('admin_status', b.dataset.rev, 'Revoke this licence? The app stops working on that computer at its next check.', { status: 'revoked' }));
+  document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => act2('admin_status', b.dataset.act, 'Make this licence active again?', { status: 'active' }));
+}
+async function act2(action, id, q, extra = {}) { if (!confirm(q)) return; try { await api(action, { id, ...extra }); await load(); } catch (e) { alert(e.message); } }
+async function load() { const j = await api('admin_list'); LIST = j.licences; draw(); }
+$('#go').onclick = async () => { PW = $('#pw').value; $('#lerr').textContent = ''; try { await load(); $('#login').classList.add('hidden'); $('#app').classList.remove('hidden'); } catch (e) { $('#lerr').textContent = e.message; PW = ''; } };
+$('#pw').onkeydown = e => { if (e.key === 'Enter') $('#go').click(); };
+$('#q').oninput = draw; $('#reload').onclick = () => load().catch(e => alert(e.message));
+$('#issue').onclick = async () => {
+  const email = $('#em').value.trim(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return alert('Enter a valid email.');
+  try { const j = await api('admin_issue', { email, plan: $('#plan').value, note: $('#note').value.trim(), send_email: $('#mail').checked });
+    $('#issued').classList.remove('hidden');
+    $('#issued').innerHTML = `<div style="margin-top:14px"><b>Key for ${esc(j.email)}</b> (shown once; only a fingerprint is kept on the server)</div><div class="key" id="kk">${esc(j.key)}</div><div class="flex" style="margin-top:8px"><button class="ghost sm" id="cp">Copy key</button><span class="${j.mailed ? '' : 'muted'}">${j.mailed ? 'Emailed to the buyer.' : esc(j.mailError || '')}</span></div>`;
+    $('#cp').onclick = () => navigator.clipboard.writeText(j.key).then(() => alert('Copied.'));
+    $('#em').value = ''; $('#note').value = ''; await load();
+  } catch (e) { alert(e.message); }
+};
+$('#chg').onclick = async () => { const np = $('#np').value; if (np.length < 12) return alert('Use at least 12 characters.'); try { await api('admin_password', { new_pw: np }); PW = np; $('#np').value = ''; alert('Admin password changed. Use the new one next time.'); } catch (e) { alert(e.message); } };
+</script>
+</body></html>
