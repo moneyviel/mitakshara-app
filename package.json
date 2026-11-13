@@ -1,7 +1,7 @@
 {
   "name": "mitakshara",
   "productName": "Mitakshara",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Mitakshara: private, offline-first law chamber workspace",
   "author": "MoneyViel",
   "license": "UNLICENSED",
@@ -20,19 +20,71 @@
     "appId": "com.moneyviel.mitakshara",
     "productName": "Mitakshara",
     "copyright": "Copyright © 2026 MoneyViel",
-    "files": ["main/**", "renderer/**", "package.json"],
+    "files": [
+      "main/**",
+      "renderer/**",
+      "package.json"
+    ],
     "asar": true,
-    "directories": { "output": "dist", "buildResources": "build" },
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
     "mac": {
       "category": "public.app-category.business",
-      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }, { "target": "zip", "arch": ["arm64", "x64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
       "identity": "-",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
+      "icon": "build/icon.png",
+      "artifactName": "Mitakshara-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "Mitakshara",
+      "writeUpdateInfo": false
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.png"
     },
-    "dmg": { "title": "Mitakshara", "writeUpdateInfo": false },
-    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.png" },
-    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "shortcutName": "Mitakshara", "differentialPackage": false }
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Mitakshara",
+      "differentialPackage": false,
+      "artifactName": "Mitakshara-Setup-${version}.${ext}"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    }
   }
 }

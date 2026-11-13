@@ -2,6 +2,7 @@ name: Build Mitakshara
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 jobs:
@@ -65,3 +66,26 @@ jobs:
         with:
           name: Mitakshara-Windows
           path: dist/*.exe
+
+  # On a version tag (v1.2.3): publish a GitHub Release that the in-app updater and the download page use
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: art }
+      - name: Make update manifests and publish the release
+        env: { GH_TOKEN: "${{ github.token }}", TAG: "${{ github.ref_name }}", REPO: "${{ github.repository }}" }
+        run: |
+          set -e
+          V="${TAG#v}"; mkdir -p out
+          cp art/Mitakshara-Windows/*.exe art/Mitakshara-Mac/*.zip art/Mitakshara-Mac/*.dmg out/
+          man() { f="out/$3"; test -f "$f" || { echo "missing $f"; exit 1; }
+            printf '{"version":"%s","file":"%s","sha256":"%s","size":%s,"notes":"Mitakshara %s"}' "$V" "$3" "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$V" > "out/latest-$1-$2.json"; }
+          man win32 x64 "Mitakshara-Setup-$V.exe"
+          man darwin x64 "Mitakshara-$V-x64.zip"
+          man darwin arm64 "Mitakshara-$V-arm64.zip"
+          ls -la out
+          gh release create "$TAG" out/* --repo "$REPO" --title "Mitakshara $V" --notes "Mitakshara $V"

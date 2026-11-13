@@ -5,10 +5,10 @@ function openViewer(files, start = 0) {
   files = (files || []).filter(f => f && f.fid);
   if (!files.length) return;
   let i = Math.max(0, Math.min(start, files.length - 1));
-  const ov = document.createElement('div'); ov.className = 'viewer'; ov.setAttribute('role', 'dialog');
+  const ov = document.createElement('div'); ov.className = 'viewer'; ov.style.zIndex = ++topZ; ov.setAttribute('role', 'dialog');
   ov.innerHTML = `<div class="vhead"><div class="grow vtitle"><b class="vname"></b><div class="small vsub"></div></div>
      <div class="flex"><button class="btn ghost sm vprev" title="Previous file (Left arrow)">&larr; Previous</button><span class="small vcount"></span><button class="btn ghost sm vnext" title="Next file (Right arrow)">Next &rarr;</button>
-     <button class="btn ghost sm vsave">Save copy</button><button class="btn ghost sm vext" title="Open with another program on this computer">Open in other app</button><button class="btn sm vclose" title="Close (Esc)">Close</button></div></div>
+     <button class="btn ghost sm vai" title="Summary, explanation, dates (needs your AI key)">Ask AI</button><button class="btn ghost sm vsign hidden" title="Sign this PDF with your digital signature">Sign (DSC)</button><button class="btn ghost sm vsave">Save copy</button><button class="btn ghost sm vext" title="Open with another program on this computer">Open in other app</button><button class="btn sm vclose" title="Close (Esc)">Close</button></div></div>
    <div class="vbody"></div>`;
   document.body.appendChild(ov);
   const q = s => ov.querySelector(s);
@@ -24,6 +24,8 @@ function openViewer(files, start = 0) {
     if (kind(f.filename) !== 'pdf') fr.setAttribute('sandbox', '');
     fr.src = `mkfile://view/${f.fid}/${name}`;
     q('.vbody').replaceChildren(fr);
+    q('.vsign').classList.toggle('hidden', !(kind(f.filename) === 'pdf' && f.docId && window.signFile));
+    q('.vai').classList.toggle('hidden', !window.aiModal);
   };
   const close = () => { document.removeEventListener('keydown', key, true); ov.remove(); };
   const key = e => {
@@ -37,6 +39,8 @@ function openViewer(files, start = 0) {
   q('.vnext').onclick = () => { if (i < files.length - 1) { i++; show(); } };
   q('.vsave').onclick = async () => { try { if (await call('exportFile', { fid: files[i].fid, filename: files[i].filename })) toast('Copy saved.'); } catch (e) { toast(e.message); } };
   q('.vext').onclick = async () => { try { await call('openFile', { fid: files[i].fid, filename: files[i].filename }); } catch (e) { toast(e.message); } };
+  q('.vai').onclick = () => window.aiModal({ ...files[i] });
+  q('.vsign').onclick = () => window.signFile({ ...files[i] }, signed => { files.splice(i + 1, 0, signed); i++; show(); });
   window.mk.onLocked(close);
   show();
 }

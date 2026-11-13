@@ -13,7 +13,7 @@ const crypto = require('crypto');
 const os = require('os');
 let openTemp = null; // folder for files opened for viewing; wiped on lock and quit
 let viewCache = null; // { fid, buf } last file decrypted for viewing
-function wipeTemp() { viewCache = null; if (openTemp) { try { fs.rmSync(openTemp, { recursive: true, force: true }); } catch {} openTemp = null; } }
+function wipeTemp() { viewCache = null; if (typeof tempFiles !== 'undefined') tempFiles.clear(); if (openTemp) { try { fs.rmSync(openTemp, { recursive: true, force: true }); } catch {} openTemp = null; } }
 const MAX_FILE = 250 * 1024 * 1024;
 function docsDir() { const d = path.join(vault.dir, 'docs'); fs.mkdirSync(d, { recursive: true }); return d; }
 function storeFile(p) {
@@ -25,7 +25,16 @@ function storeFile(p) {
   fs.writeFileSync(path.join(docsDir(), fid + '.enc'), vault.encryptBlob(buf, 'file:' + fid), { mode: 0o600 });
   return { fid, filename: path.basename(p), size: st.size, sha256: crypto.createHash('sha256').update(buf).digest('hex'), added: new Date().toISOString() };
 }
+function storeBuffer(buf, filename) {
+  if (buf.length > MAX_FILE) throw new Error(filename + ' is larger than 250 MB.');
+  const fid = crypto.randomUUID();
+  fs.writeFileSync(path.join(docsDir(), fid + '.enc'), vault.encryptBlob(buf, 'file:' + fid), { mode: 0o600 });
+  return { fid, filename, size: buf.length, sha256: crypto.createHash('sha256').update(buf).digest('hex'), added: new Date().toISOString() };
+}
+const tempFiles = new Map(); // previews made by the app (not saved); cleared on lock
+function tempPut(buf, filename) { const fid = crypto.randomUUID(); tempFiles.set(fid, buf); if (tempFiles.size > 20) tempFiles.delete(tempFiles.keys().next().value); return { fid, filename, size: buf.length }; }
 function readStored(fid) {
+  if (tempFiles.has(fid)) return tempFiles.get(fid);
   if (!/^[0-9a-f-]{36}$/.test(fid)) throw new Error('Bad file id');
   return vault.decryptBlob(fs.readFileSync(path.join(docsDir(), fid + '.enc')), 'file:' + fid);
 }
@@ -70,7 +79,7 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => { win.maximize(); win.show(); }); // always open full-size
   // never navigate away from the app, never open new windows inside it
   win.webContents.on('will-navigate', e => e.preventDefault());
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
@@ -121,7 +130,7 @@ const handlers = {
     return licence.release();
   },
   async createAccount({ name, email, password }) { await needLicence(); return { phrase: vault.create({ name, email, password }) }; },
-  async unlock({ email, password }) { await needLicence(); vault.unlock(email, password); return true; },
+  async unlock({ email, password }) { await needLicence(); vault.unlock(email, password); setTimeout(() => handlers.backupAutoTick().catch(() => {}), 60000); return true; },
   async lock() { lockNow('manual'); return true; },
   async recover({ phrase, password }) { await needLicence(); vault.recover(phrase, password); return true; },
   async changePassword({ oldPassword, newPassword }) { vault.changePassword(oldPassword, newPassword); return true; },
@@ -219,6 +228,10 @@ const handlers = {
 };
 async function needLicence() { const s = await licence.status(); if (!s.valid) throw new Error('Please activate Mitakshara first.'); }
 function needOpen() { if (!vault.isUnlocked()) throw new Error('Mitakshara is locked. Please sign in again.'); }
+
+const ctx = { needOpen, storeBuffer, readStored, tempPut, win: () => win, vault: () => vault, licence: () => licence, DEV, testOut: () => (DEV && process.env.MITAKSHARA_TEST_OUT) || '', version: VERSION };
+for (const mod of ['./docsout', './dsc', './ai', './net', './backup', './update']) Object.assign(handlers, require(mod)(ctx));
+setInterval(() => { handlers.backupAutoTick().catch(() => {}); }, 30 * 60000);
 
 ipcMain.handle('mk', async (e, name, args) => {
   if (!win || e.sender !== win.webContents) throw new Error('Not allowed');

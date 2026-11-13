@@ -14,8 +14,9 @@ async function call(name, args) {
 }
 let toastT;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3500); }
+let topZ = 300; // newest window on top (modals and the document viewer)
 function modal(html) {
-  const m = document.createElement('div'); m.className = 'modal';
+  const m = document.createElement('div'); m.className = 'modal'; m.style.zIndex = ++topZ;
   m.innerHTML = `<div class="card"><button class="btn ghost sm x" data-x>Close</button>${html}</div>`;
   m.addEventListener('click', e => { if (e.target === m || e.target.hasAttribute('data-x')) m.remove(); });
   document.body.appendChild(m); m.close = () => m.remove();
@@ -76,6 +77,10 @@ function activationView(msg) {
 }
 
 /* ---------------- First-time setup ---------------- */
+async function restoreFlow() {
+  const m = modal(`<h2>Restore from a backup</h2><p>Choose a <b>.mkbackup</b> file. The workspace on this computer is put aside (not deleted) and replaced by the backup. Then sign in with the password that was used when the backup was made, or with that Recovery Kit.</p><div class="flex end mt14"><button class="btn ghost" data-x>Cancel</button><button class="btn" id="rs_go">Choose backup file</button></div>`);
+  m.querySelector('#rs_go').onclick = async () => { try { const r = await call('restoreBackup', {}); if (!r) return; m.close(); if (typeof D !== 'undefined') D.loaded = false; await start(`Backup of ${fd(r.made)} restored (${r.docs} files). Sign in with ${r.email}.`); } catch (e) { toast(e.message); } };
+}
 function setupView() {
   const email = S.status.licence.email || '';
   root().innerHTML = `<div class="entry">${BRAND('Set up your private workspace', 'Your sign-in is your email and a password. Everything you store is encrypted with it, on this computer.', ['Only you can open it', 'Nobody else, including us, can read your data', 'A 24-word Recovery Kit lets you back in if you forget the password'])}
@@ -88,8 +93,10 @@ function setupView() {
     <div class="checks" id="s_chk"></div>
     <label for="s_pw2">Type the password again</label>${pwField('s_pw2')}
     <button class="btn wide mt20" id="s_go">Continue</button><div class="err" id="s_err"></div>
+    <div class="center mt14 small">Moving from another computer? <a id="s_restore">Restore from a backup file</a></div>
    </div></div></div>`;
   wirePw(); pwChecks('s_pw', 's_chk');
+  $('#s_restore').onclick = restoreFlow;
   $('#s_go').onclick = async () => {
     $('#s_err').textContent = '';
     if (!$('#s_name').value.trim()) return $('#s_err').textContent = 'Please enter your name.';
@@ -140,7 +147,7 @@ function loginView(msg) {
     <label for="l_email">Email</label><input id="l_email" type="email" value="${esc(p?.email || '')}" autocomplete="off">
     <label for="l_pw">Password</label>${pwField('l_pw')}
     <button class="btn wide mt20" id="l_go">Sign in</button><div class="err" id="l_err"></div>
-    <div class="center mt14"><a id="l_forgot">Forgot password? Use your Recovery Kit</a></div></div></div></div>`;
+    <div class="center mt14"><a id="l_forgot">Forgot password? Use your Recovery Kit</a></div><div class="center mt8 small"><a id="l_restore">Restore from a backup file</a></div></div></div></div>`;
   wirePw(); (p?.email ? $('#l_pw') : $('#l_email')).focus();
   const go = async () => {
     const done = busy($('#l_go'), 'Opening...'); $('#l_err').textContent = '';
@@ -149,6 +156,7 @@ function loginView(msg) {
   };
   $('#l_go').onclick = go; $('#l_pw').onkeydown = e => { if (e.key === 'Enter') go(); };
   $('#l_forgot').onclick = recoverView;
+  $('#l_restore').onclick = restoreFlow;
 }
 function recoverView() {
   root().innerHTML = `<div class="entry">${BRAND('Reset with your Recovery Kit', 'Type your 24 words in order, separated by spaces, then choose a new password.', null)}
@@ -172,10 +180,10 @@ function recoverView() {
 
 /* ---------------- App shell ---------------- */
 const TABS = [
-  ['Today', '&#9728;'], ['Clients', '&#128101;'], ['Cases', '&#128193;'], ['Diary', '&#128197;'], ['Team', '&#128100;'],
+  ['Today', '&#9728;'], ['Clients', '&#128101;'], ['Cases', '&#128193;'], ['Diary', '&#128197;'], ['Team', '&#128100;'], ['Drafting', '&#9998;'],
   ['Law Library', '&#128214;'], ['Accounts', '&#8377;'], ['Settings', '&#9881;'],
 ];
-const DONE_STAGES = 3;
+const DONE_STAGES = 8;
 const STAGES = [
   ['Secure app, licence and encrypted storage', 'Done'],
   ['Clients and documents, with typing suggestions', 'Clients'],

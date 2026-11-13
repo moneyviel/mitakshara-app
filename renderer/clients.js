@@ -411,7 +411,7 @@ function wireDocsTab(c, caseId) {
   const q = $('#dq'); const filt = () => { F.q = q.value; const t = q.value.trim().toLowerCase(); $$('.docline').forEach(r => r.classList.toggle('hidden', !!t && !r.dataset.s.includes(t))); $$('.dgroup').forEach(g => g.classList.toggle('hidden', !g.querySelector('.docline:not(.hidden)'))); };
   q.addEventListener('input', filt); filt();
   // every visible file, in screen order, so Previous / Next walks through the client's documents
-  const vis = () => { const out = []; $$('.docline:not(.hidden)').forEach(r => { const d = D.documents.find(x => x.id === r.dataset.id); (d.files || []).forEach(f => out.push({ ...f, title: d.name })); }); return out; };
+  const vis = () => { const out = []; $$('.docline:not(.hidden)').forEach(r => { const d = D.documents.find(x => x.id === r.dataset.id); (d.files || []).forEach(f => out.push({ ...f, title: d.name, docId: d.id })); }); return out; };
   $$('[data-view-f]').forEach(a => a.onclick = () => { const list = vis(); openViewer(list, Math.max(0, list.findIndex(f => f.fid === a.dataset.viewF))); });
   $$('[data-save-f]').forEach(a => a.onclick = async () => { try { if (await call('exportFile', { fid: a.dataset.saveF, filename: a.dataset.n })) toast('Copy saved.'); } catch (e) { toast(e.message); } });
   $$('[data-dstatus]').forEach(s => s.onchange = async () => { const d = D.documents.find(x => x.id === s.dataset.dstatus); d.status = s.value; d.updated = new Date().toISOString(); await saveD('documents'); toast('Status updated.'); redraw(); });
@@ -487,7 +487,7 @@ function allDocs() {
   $('#ad_group').onchange = e => { F.group = e.target.value; allDocs(); };
   $('#ad_clear').onclick = () => { Object.assign(F, { q: '', client: '', group: '', status: '' }); allDocs(); };
   $$('[data-adc]').forEach(a => a.onclick = () => { S.cv = { mode: 'detail', id: a.dataset.adc, tab: 'Documents' }; PAGES.Clients(); });
-  const vis = () => $$('#ad_tbl tbody tr:not(.hidden)').flatMap(r => { const d = D.documents.find(x => x.id === r.dataset.id); return (d.files || []).map(f => ({ ...f, title: d.name })); });
+  const vis = () => $$('#ad_tbl tbody tr:not(.hidden)').flatMap(r => { const d = D.documents.find(x => x.id === r.dataset.id); return (d.files || []).map(f => ({ ...f, title: d.name, docId: d.id })); });
   $$('[data-adv]').forEach(a => a.onclick = () => { const l = vis(); openViewer(l, Math.max(0, l.findIndex(f => f.fid === a.dataset.adv))); });
   const q = $('#ad_q'); const filt = () => { F.q = q.value; const t = q.value.trim().toLowerCase(); let n = 0; $$('#ad_tbl tbody tr').forEach(r => { const s2 = !t || r.dataset.s.includes(t); r.classList.toggle('hidden', !s2); if (s2) n++; }); if ($('#ad_none')) $('#ad_none').classList.toggle('hidden', n > 0); };
   q.addEventListener('input', filt); filt();

@@ -282,7 +282,7 @@ function caseDetail(id) {
   $$('[data-goclient]').forEach(a => a.onclick = () => { S.tab = 'Clients'; S.cv = { mode: 'detail', id: a.dataset.goclient, tab: 'Overview' }; shellView(); });
   $$('[data-rec]').forEach(b => b.onclick = () => recordHearing(b.dataset.rec));
   $$('[data-hedit]').forEach(b => b.onclick = () => hearingModal(id, b.dataset.hedit));
-  $$('[data-hview]').forEach(a => a.onclick = () => { const files = caseDocsOf(id).flatMap(d => (d.files || []).map(f => ({ ...f, title: d.name }))); openViewer(files, files.findIndex(f => f.fid === a.dataset.hview)); });
+  $$('[data-hview]').forEach(a => a.onclick = () => { const files = caseDocsOf(id).flatMap(d => (d.files || []).map(f => ({ ...f, title: d.name, docId: d.id }))); openViewer(files, files.findIndex(f => f.fid === a.dataset.hview)); });
   ['#kd_addh', '#kd_addh2'].forEach(s => { const b = $(s); if (b) b.onclick = () => hearingModal(id); });
   if ($('#kd_reopen')) $('#kd_reopen').onclick = async () => { cs.status = 'Active'; cs.reopened = new Date().toISOString(); await saveD('cases'); toast('Case reopened. Add the next date.'); redraw(); };
   if ($('#kd_close')) $('#kd_close').onclick = () => closeCaseModal(cs);

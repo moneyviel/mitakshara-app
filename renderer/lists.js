@@ -22,7 +22,7 @@ const DEFAULT_LISTS = {
   checklist_items: ['Case file / brief ready', 'Vakalatnama filed', 'Copies for court and other side', 'Client informed of date', 'Client / witness to attend', 'Court fee / stamps', 'Original documents', 'Last order sheet read', 'Citations / judgments printed', 'Junior / clerk briefed'],
   team_roles: ['Senior Advocate', 'Associate Advocate', 'Junior Advocate', 'Clerk / Munshi', 'Intern', 'Office staff'],
   duties: ['Arguments', 'Drafting', 'Research', 'Attend dates', 'Note next date', 'Inform client', 'Filing', 'Certified copies', 'Cause list check', 'Court fee & stamps', 'Accounts'],
-  doc_groups: ['Identity & KYC', 'Vakalatnama & Authority', 'Police / FIR', 'Court Filings', 'Orders & Judgments', 'Evidence', 'Notices & Letters', 'Property', 'Financial', 'Medical', 'Agreements', 'Family & Personal', 'Others'],
+  doc_groups: ['Identity & KYC', 'Vakalatnama & Authority', 'Police / FIR', 'Court Filings', 'Orders & Judgments', 'Evidence', 'Notices & Letters', 'Property', 'Financial', 'Medical', 'Agreements', 'Family & Personal', 'Research & Judgments', 'Others'],
 };
 /* Common document names, used as typing suggestions until the user's own history takes over. */
 const SEED_DOCS = {

@@ -127,4 +127,12 @@ function viewPage(name, buf, rawUrl) {
   const hint = /^(doc|xls|ppt|pptx)$/.test(e) ? 'Older Word, Excel and PowerPoint formats cannot be previewed here.' : 'This type of file cannot be previewed here.';
   return wrap(`<div class="center"><div class="box"><p><b>${esc(name)}</b></p><p>${hint}</p><p>Use "Open in other app" or "Save copy" above.</p></div></div>`);
 }
-module.exports = { kindOf, viewPage, MIME, extOf, docxToHtml, xlsxToHtml };
+module.exports = { kindOf, viewPage, MIME, extOf, docxToHtml, xlsxToHtml, unzip };
+/* plain text of a file, for the AI helper and search (PDF handled by the AI provider itself) */
+module.exports.textOf = function (name, buf) {
+  const k = kindOf(name); const strip = h => h.replace(/<\/(p|h1|h2|h3|tr)>/g, '\n').replace(/<\/td>/g, '\t').replace(/<br>/g, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&emsp;/g, '\t').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+  if (k === 'text') return buf.toString('utf8');
+  if (k === 'docx') return strip(docxToHtml(buf).html);
+  if (k === 'xlsx') return strip(xlsxToHtml(buf).html);
+  return null;
+};
