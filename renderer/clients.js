@@ -84,6 +84,7 @@ PAGES.Clients = async () => {
   await loadD();
   if (S.cv.mode === 'form') return clientForm(S.cv.id);
   if (S.cv.mode === 'detail') return clientDetail(S.cv.id);
+  if (S.cv.mode === 'alldocs') return allDocs();
   const F = S.cf; const C = D.clients;
   const monthStart = today().slice(0, 7);
   const boxes = [
@@ -101,7 +102,7 @@ PAGES.Clients = async () => {
     && (!F.lang || c.language === F.lang) && (!F.ref || c.referred_by === F.ref) && (!F.docs || (F.docs === 'pending' ? pendingDocs(c.id).length : !pendingDocs(c.id).length))
   ).sort((a, b) => a.name.localeCompare(b.name));
   const sel = (k, label, list, blank = 'All') => `<div><label>${label}</label><select data-cf="${k}">${opts(list, F[k], blank)}</select></div>`;
-  page(`<div class="top"><div><h1>Clients</h1><div class="muted">Everything starts here. Search finds a client as you type.</div></div><button class="btn" id="c_add">Add client</button></div>
+  page(`<div class="top"><div><h1>Clients</h1><div class="muted">Everything starts here. Search finds a client as you type.</div></div><div class="flex"><button class="btn ghost" id="c_alldocs">All documents</button><button class="btn" id="c_add">Add client</button></div></div>
    <div class="kpis">${boxes.map(([k, t, n]) => `<button class="card kpi ${F.box === k || (!F.box && k === 'all') ? 'on' : ''}" data-box="${k}"><div class="muted small">${t}</div><div class="v">${n}</div></button>`).join('')}</div>
    <div class="card mb14"><div class="filters">
      <div class="span2"><label>Search</label><input id="c_q" value="${esc(F.q)}" placeholder="Client code, name, mobile, email, PAN, city or other side"></div>
@@ -117,6 +118,7 @@ PAGES.Clients = async () => {
       <td>${docs.length}${p ? ` <span class="tag warn">${p} pending</span>` : ''}</td><td>${esc(c.referred_by || '-')}</td><td>${fd(c.created)}</td></tr>`; }).join('')}
     </tbody></table><div class="muted center hidden mt14" id="c_none">No client matches the search.</div>` : `<div class="empty"><b>No clients yet.</b><div class="muted">Press <b>Add client</b> to add your first client with their documents.</div></div>`}</div>`);
   $('#c_add').onclick = () => { S.cv = { mode: 'form', id: null }; PAGES.Clients(); };
+  $('#c_alldocs').onclick = () => { S.cv = { mode: 'alldocs', status: '' }; PAGES.Clients(); };
   $$('[data-box]').forEach(b => b.onclick = () => { F.box = b.dataset.box === 'all' ? '' : b.dataset.box; if (F.box === 'active') F.status = ''; PAGES.Clients(); });
   $$('[data-cf]').forEach(s => s.onchange = () => { F[s.dataset.cf] = s.value; PAGES.Clients(); });
   $('#c_clear').onclick = () => { Object.assign(F, { q: '', type: '', status: 'Active', state: '', city: '', lang: '', ref: '', docs: '', box: '' }); PAGES.Clients(); };
@@ -457,6 +459,40 @@ function newDocsBox(c, caseId) {
   };
 }
 
+/* ---------- all documents of all clients ---------- */
+function allDocs() {
+  const F = S.adf || (S.adf = { q: '', client: '', group: '', status: '' });
+  if (S.cv.status !== undefined) { F.status = S.cv.status; delete S.cv.status; }
+  const caseOf = d => d.case_id && (D.cases || []).find(x => x.id === d.case_id);
+  const list = D.documents.filter(d => (!F.client || d.client_id === F.client) && (!F.group || d.group === F.group) && (!F.status || d.status === F.status))
+    .sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+  const counts = s => D.documents.filter(d => d.status === s).length;
+  const clientsUsed = D.clients.filter(c => D.documents.some(d => d.client_id === c.id)).sort((a, b) => a.name.localeCompare(b.name));
+  page(`<div class="top"><div><a id="ad_back">&larr; Clients</a><h1 class="mt8">All documents</h1><div class="muted">Every document of every client, newest first. Click a file to read it here.</div></div></div>
+   <div class="kpis k4">${[['', 'All documents', D.documents.length], ['Received', 'Received', counts('Received')], ['Pending', 'Pending', counts('Pending')], ['Not required', 'Not required', counts('Not required')]].map(([k, t, n]) => `<button class="card kpi ${F.status === k ? 'on' : ''}" data-ads="${k}"><div class="muted small">${t}</div><div class="v">${n}</div></button>`).join('')}</div>
+   <div class="card mb14"><div class="filters"><div class="span2"><label>Search</label><input id="ad_q" value="${esc(F.q)}" placeholder="Document, client, client code, case code, file name"></div>
+    <div><label>Client</label><select id="ad_client"><option value="">All clients</option>${clientsUsed.map(c => `<option value="${c.id}" ${F.client === c.id ? 'selected' : ''}>${esc(c.code + ' · ' + c.name)}</option>`).join('')}</select></div>
+    <div><label>Group</label><select id="ad_group">${opts(L('doc_groups'), F.group, 'All groups')}</select></div>
+    <div><label>&nbsp;</label><button class="btn ghost wide" id="ad_clear">Clear</button></div></div></div>
+   <div class="card">${list.length ? `<div class="tblwrap"><table class="tbl" id="ad_tbl"><thead><tr><th>Document</th><th>Client</th><th>Group</th><th>Status</th><th>Added</th><th>Files</th></tr></thead><tbody>
+    ${list.map(d => { const c = D.clients.find(x => x.id === d.client_id) || {}; const k = caseOf(d); return `<tr data-id="${d.id}" data-s="${esc([d.name, d.note, c.name, c.code, k ? k.code : '', ...(d.files || []).map(f => f.filename)].join(' ').toLowerCase())}">
+     <td><b>${esc(d.name)}</b>${k ? ` <span class="codechip mono small">${esc(k.code)}</span>` : ''}${d.note ? `<div class="small muted">${esc(d.note)}</div>` : ''}</td>
+     <td><a data-adc="${c.id}">${esc(c.name || '-')}</a><div class="small muted mono">${esc(c.code || '')}</div></td><td class="small">${esc(d.group)}</td>
+     <td><span class="tag ${d.status === 'Pending' ? 'warn' : d.status === 'Received' ? 'ok' : 'grey'}">${esc(d.status)}</span></td><td class="small">${fd(d.created)}</td>
+     <td>${(d.files || []).map(f => `<span class="fchip"><a data-adv="${f.fid}">${esc(f.filename)}</a></span>`).join('') || '<span class="small muted">No file</span>'}</td></tr>`; }).join('')}</tbody></table></div><div class="muted center hidden mt14" id="ad_none">No document matches the search.</div>`
+    : `<div class="empty"><b>No documents ${F.status || F.client || F.group ? 'match these filters' : 'yet'}.</b></div>`}</div>`);
+  $('#ad_back').onclick = () => { S.cv = { mode: 'list' }; PAGES.Clients(); };
+  $$('[data-ads]').forEach(b => b.onclick = () => { F.status = b.dataset.ads; allDocs(); });
+  $('#ad_client').onchange = e => { F.client = e.target.value; allDocs(); };
+  $('#ad_group').onchange = e => { F.group = e.target.value; allDocs(); };
+  $('#ad_clear').onclick = () => { Object.assign(F, { q: '', client: '', group: '', status: '' }); allDocs(); };
+  $$('[data-adc]').forEach(a => a.onclick = () => { S.cv = { mode: 'detail', id: a.dataset.adc, tab: 'Documents' }; PAGES.Clients(); });
+  const vis = () => $$('#ad_tbl tbody tr:not(.hidden)').flatMap(r => { const d = D.documents.find(x => x.id === r.dataset.id); return (d.files || []).map(f => ({ ...f, title: d.name })); });
+  $$('[data-adv]').forEach(a => a.onclick = () => { const l = vis(); openViewer(l, Math.max(0, l.findIndex(f => f.fid === a.dataset.adv))); });
+  const q = $('#ad_q'); const filt = () => { F.q = q.value; const t = q.value.trim().toLowerCase(); let n = 0; $$('#ad_tbl tbody tr').forEach(r => { const s2 = !t || r.dataset.s.includes(t); r.classList.toggle('hidden', !s2); if (s2) n++; }); if ($('#ad_none')) $('#ad_none').classList.toggle('hidden', n > 0); };
+  q.addEventListener('input', filt); filt();
+}
+
 /* ---------- Today: real numbers ---------- */
 const _today = PAGES.Today;
 PAGES.Today = async () => {
@@ -467,11 +503,12 @@ PAGES.Today = async () => {
    <button class="card stat click" data-go="docs"><div class="muted small">Documents stored</div><div class="v">${D.documents.length}</div><div class="small muted">${D.documents.reduce((n, d) => n + (d.files || []).length, 0)} files, all encrypted</div></button>
    <button class="card stat click" data-go="pending"><div class="muted small">Documents pending</div><div class="v">${pend.length}</div><div class="small muted">from ${new Set(pend.map(d => d.client_id)).size} clients</div></button>
    <button class="card stat click" data-go="add"><div class="muted small">Quick action</div><div class="v small-v">+ Add client</div><div class="small muted">with documents</div></button>`;
-  const first = $('#page .statgrid'); first.parentNode.insertBefore(box, first.nextSibling);
+  $('#t_slot').appendChild(box);
   box.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
     S.tab = 'Clients';
     if (b.dataset.go === 'add') S.cv = { mode: 'form', id: null };
-    else { S.cv = { mode: 'list' }; S.cf.box = b.dataset.go === 'pending' ? 'pending' : ''; }
+    else if (b.dataset.go === 'clients') S.cv = { mode: 'list' };
+    else S.cv = { mode: 'alldocs', status: b.dataset.go === 'pending' ? 'Pending' : '' };
     shellView();
   });
 };

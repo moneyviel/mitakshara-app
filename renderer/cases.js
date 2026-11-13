@@ -556,7 +556,7 @@ PAGES.Today = async () => {
      <div class="row"><span>Hearings in the next 7 days</span><b>${week.length}</b></div>
      <div class="row"><span>Checklist not ready (next 2 days)</span>${unready.length ? `<span class="tag warn">${unready.length}</span>` : '<span class="tag ok">Ready</span>'}</div>
      ${ap.map(c => `<div class="row"><span>Appeal limit: ${esc(c.code)}</span><span class="tag warn">${fdd(c.appeal_by)}</span></div>`).join('')}</div>`;
-  const anchor = $('#page .statgrid'); anchor.parentNode.insertBefore(box, anchor);
+  $('#t_slot').prepend(box);
   box.querySelectorAll('[data-godiary]').forEach(b => b.onclick = () => { S.tab = 'Diary'; S.dy.view = b.dataset.godiary; S.dy.date = t0; shellView(); });
   box.querySelectorAll('[data-rec]').forEach(b => b.onclick = () => recordHearing(b.dataset.rec));
 };

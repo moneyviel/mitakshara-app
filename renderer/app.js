@@ -202,11 +202,7 @@ PAGES.Today = () => {
   const st = S.status; const L = st.licence; const name = (st.vault.profile?.name || '').split(' ')[0];
   const h = new Date().getHours(); const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   page(`<div class="top"><div><h1>${greet}${name ? ', ' + esc(name) : ''}</h1><div class="muted">${fd(new Date())}</div></div></div>
-   <div class="statgrid">
-    <div class="card stat"><div class="muted small">Workspace</div><div class="v">Encrypted</div><div class="small muted">AES-256, locked with your password</div></div>
-    <div class="card stat"><div class="muted small">Auto-lock</div><div class="v">${st.vault.autoLockMin} min</div><div class="small muted">Also locks on sleep and screen lock</div></div>
-    <div class="card stat"><div class="muted small">Licence</div><div class="v">Active</div><div class="small muted">Works offline until ${fd(L.offlineUntil)}</div></div>
-    <div class="card stat"><div class="muted small">Version</div><div class="v">${esc(st.version)}</div><div class="small muted">Updates install automatically (Stage 8)</div></div></div>
+   <div id="t_slot"></div>
    <div class="card"><h2>Building Mitakshara, stage by stage</h2>
     ${STAGES.map(([t], i) => `<div class="stage ${i < DONE_STAGES ? 'done' : i === DONE_STAGES ? 'now' : ''}"><div class="n">${i < DONE_STAGES ? '&#10003;' : i + 1}</div><div><b>${t}</b><div class="small muted">${i < DONE_STAGES ? 'Ready to use' : i === DONE_STAGES ? 'Next' : 'Planned'}</div></div></div>`).join('')}</div>`);
 };
@@ -219,8 +215,13 @@ PAGES.soon = () => {
 ['Cases', 'Diary', 'Law Library', 'Accounts'].forEach(t => PAGES[t] = PAGES.soon);
 PAGES.Settings = async () => {
   const st = S.status; const L = st.licence;
-  page(`<div class="top"><div><h1>Settings</h1><div class="muted">Security and licence. More settings arrive with each stage.</div></div></div>
-   <div class="grid g2">
+  page(`<div class="top"><div><h1>Settings</h1><div class="muted">Security, licence, practice details and lists.</div></div></div>
+   <div class="minis">
+    <div class="mini"><span>Workspace</span><b>Encrypted</b><i>AES-256, locked with your password</i></div>
+    <div class="mini"><span>Auto-lock</span><b>${st.vault.autoLockMin} min</b><i>Also on sleep and screen lock</i></div>
+    <div class="mini"><span>Licence</span><b>Active</b><i>Works offline until ${fd(L.offlineUntil)}</i></div>
+    <div class="mini"><span>Version</span><b>${esc(st.version)}</b><i>Updates: see "Updates and backup"</i></div></div>
+   <div class="grid g2" id="set_grid">
     <div class="card"><h2>Security</h2>
      <div class="row"><div><b>Password</b><div class="small muted">Used to unlock your encrypted workspace</div></div><button class="btn ghost sm" id="set_pw">Change</button></div>
      <div class="row"><div><b>Auto-lock after no activity</b><div class="small muted">Also locks when the computer sleeps or the screen locks</div></div>

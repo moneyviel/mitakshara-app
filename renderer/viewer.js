@@ -20,8 +20,9 @@ function openViewer(files, start = 0) {
     q('.vprev').disabled = i === 0; q('.vnext').disabled = i === files.length - 1;
     q('.vprev').classList.toggle('hidden', files.length < 2); q('.vnext').classList.toggle('hidden', files.length < 2);
     const fr = document.createElement('iframe'); fr.className = 'vframe'; fr.title = f.filename;
-    if (kind(f.filename) === 'pdf') fr.src = `mkfile://raw/${f.fid}/${name}`;
-    else { fr.setAttribute('sandbox', ''); fr.src = `mkfile://view/${f.fid}/${name}`; }
+    // PDFs open in the bundled PDF reader (needs scripts); every other preview runs with scripts off
+    if (kind(f.filename) !== 'pdf') fr.setAttribute('sandbox', '');
+    fr.src = `mkfile://view/${f.fid}/${name}`;
     q('.vbody').replaceChildren(fr);
   };
   const close = () => { document.removeEventListener('keydown', key, true); ov.remove(); };

@@ -3,7 +3,8 @@ const { app, BrowserWindow, ipcMain, Menu, shell, session, powerMonitor, dialog,
 const docview = require('./docview');
 const code128svg = require('../renderer/barcode.js');
 // in-app viewer: files are decrypted in memory only and served to the viewer frame
-protocol.registerSchemesAsPrivileged([{ scheme: 'mkfile', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
+const viewproto = require('./viewproto');
+protocol.registerSchemesAsPrivileged([viewproto.PRIVILEGES]);
 const path = require('path');
 const { Vault } = require('./vault');
 const WORDS = require('./words');
@@ -42,37 +43,12 @@ function pinLookup(pin) {
   return { found: true, states: st, districts: r[1].map(i => P.dnames[i]), offices: r[2] };
 }
 
-/* ---- viewer protocol: mkfile://view/<fid>/<name> (page) and mkfile://raw/<fid>/<name> (bytes) ---- */
+/* ---- viewer protocol (see viewproto.js) ---- */
 function viewBuf(fid) {
   if (viewCache && viewCache.fid === fid) return viewCache.buf;
   const buf = readStored(fid); viewCache = { fid, buf }; return buf;
 }
-async function serveFile(req) {
-  try {
-    if (!vault || !vault.isUnlocked()) return new Response('Locked', { status: 403 });
-    const u = new URL(req.url); const [, fid, ...rest] = u.pathname.split('/');
-    const name = decodeURIComponent(rest.join('/') || 'file');
-    if (!/^[0-9a-f-]{36}$/.test(fid || '')) return new Response('Not found', { status: 404 });
-    const buf = viewBuf(fid);
-    if (u.host === 'view') {
-      const k = docview.kindOf(name);
-      if (k === 'pdf') return Response.redirect(`mkfile://raw/${fid}/${encodeURIComponent(name)}`, 302);
-      const html = docview.viewPage(name, buf, `mkfile://raw/${fid}/${encodeURIComponent(name)}`);
-      return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': "default-src 'none'; img-src mkfile:; media-src mkfile:; style-src 'unsafe-inline'" } });
-    }
-    if (u.host !== 'raw') return new Response('Not found', { status: 404 });
-    const ext = docview.extOf(name);
-    const type = docview.MIME[ext] || (docview.kindOf(name) === 'text' ? 'text/plain; charset=utf-8' : 'application/octet-stream');
-    const range = /bytes=(\d*)-(\d*)/.exec(req.headers.get('range') || '');
-    const base = { 'content-type': type, 'accept-ranges': 'bytes', 'cache-control': 'no-store', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; img-src mkfile: data:" };
-    if (range && (range[1] || range[2])) {
-      let a = range[1] ? +range[1] : buf.length - +range[2]; let b = range[1] && range[2] ? Math.min(+range[2], buf.length - 1) : buf.length - 1;
-      if (a >= buf.length || a > b) return new Response(null, { status: 416, headers: { 'content-range': `bytes */${buf.length}` } });
-      return new Response(buf.subarray(a, b + 1), { status: 206, headers: { ...base, 'content-range': `bytes ${a}-${b}/${buf.length}`, 'content-length': String(b - a + 1) } });
-    }
-    return new Response(buf, { headers: { ...base, 'content-length': String(buf.length) } });
-  } catch (e) { return new Response('Could not open this file.', { status: 500 }); }
-}
+const serveFile = viewproto.makeHandler({ isOpen: () => !!(vault && vault.isUnlocked()), getBuffer: viewBuf });
 
 const DEV = process.env.MITAKSHARA_DEV === '1';
 if (process.env.MITAKSHARA_DATA) app.setPath('userData', process.env.MITAKSHARA_DATA);
@@ -90,7 +66,7 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true,
-      devTools: DEV, spellcheck: true, plugins: true, // plugins = built-in PDF viewer
+      devTools: DEV, spellcheck: true,
     },
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
@@ -258,8 +234,8 @@ app.whenReady().then(() => {
   // deny camera, microphone, location etc. unless a later feature asks for it explicitly
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
   protocol.handle('mkfile', serveFile);
-  // only local content: the app's own files, the viewer, and Chromium's built-in PDF viewer
-  session.defaultSession.webRequest.onBeforeRequest((d, cb) => cb({ cancel: !/^(file|devtools|data|blob|mkfile|chrome-extension|chrome):/.test(d.url) }));
+  // only local content: the app's own files and the in-app viewer
+  session.defaultSession.webRequest.onBeforeRequest((d, cb) => cb({ cancel: !/^(file|devtools|data|blob|mkfile):/.test(d.url) }));
   menu(); createWindow(); startIdleWatch();
   powerMonitor.on('lock-screen', () => lockNow('screen'));
   powerMonitor.on('suspend', () => lockNow('sleep'));
