@@ -2,6 +2,8 @@
 const { app, BrowserWindow, ipcMain, Menu, shell, session, powerMonitor, dialog } = require('electron');
 const path = require('path');
 const { Vault } = require('./vault');
+const WORDS = require('./words');
+const fs = require('fs');
 const { Licence } = require('./licence');
 
 const DEV = process.env.MITAKSHARA_DEV === '1';
@@ -79,6 +81,34 @@ const handlers = {
   async changePassword({ oldPassword, newPassword }) { vault.changePassword(oldPassword, newPassword); return true; },
   async newRecoveryKit({ password }) { return { phrase: vault.newRecoveryKit(password) }; },
   async setAutoLock({ minutes }) { vault.setAutoLock(minutes); return true; },
+  async saveKitPdf({ phrase }) {
+    // Recovery Kit as a PDF the user can see and print. Only real kit words are accepted.
+    if (!Array.isArray(phrase) || phrase.length !== 24 || !phrase.every(w => WORDS.includes(w))) throw new Error('Invalid kit');
+    const p = vault.profile() || {};
+    const esc = t => String(t || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#1F2933;margin:46px}
+      h1{font:600 26px Georgia,serif;color:#0F2A44;margin:0 0 6px}.sub{color:#555;margin-bottom:22px}
+      .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0 26px}
+      .w{border:1px solid #CFC6B4;border-radius:8px;padding:10px 12px;font-size:16px;font-weight:bold}.w span{color:#888;font-weight:normal;font-size:12px;margin-right:8px}
+      .box{border:2px solid #B08D57;border-radius:10px;padding:14px 16px;background:#FBF8F2;font-size:13px;line-height:1.6}
+      .foot{margin-top:28px;font-size:12px;color:#777}</style></head><body>
+      <h1>Mitakshara Recovery Kit</h1><div class="sub">Account: <b>${esc(p.email)}</b> &nbsp;&middot;&nbsp; Name: ${esc(p.name)} &nbsp;&middot;&nbsp; Created: ${date}</div>
+      <div class="grid">${phrase.map((w, i) => `<div class="w"><span>${i + 1}</span>${w}</div>`).join('')}</div>
+      <div class="box"><b>Keep this paper safe and private.</b><br>These 24 words are the only way to reset your Mitakshara password. Anyone who has them and your computer can open your data. Never photograph them, email them, or type them into any website.<br><br><b>Recommended:</b> print this page, then delete this PDF file.</div>
+      <div class="foot">If you make a new Recovery Kit in Settings, this one stops working.</div></body></html>`;
+    const pw = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false } });
+    try {
+      await pw.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+      const pdf = await pw.webContents.printToPDF({ pageSize: 'A4', printBackground: true });
+      const r = (DEV && process.env.MITAKSHARA_KIT_OUT) ? { filePath: process.env.MITAKSHARA_KIT_OUT } : await dialog.showSaveDialog(win, { title: 'Save Recovery Kit', defaultPath: path.join(app.getPath('documents'), 'Mitakshara-Recovery-Kit.pdf'), filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+      if (r.canceled || !r.filePath) return { saved: false };
+      fs.writeFileSync(r.filePath, pdf);
+      if (!DEV) shell.openPath(r.filePath);
+      return { saved: true, file: r.filePath };
+    } finally { pw.destroy(); }
+  },
   async getData({ key }) { needOpen(); return vault.data[key] ?? null; },
   async setData({ key, value }) { needOpen(); if (!/^[a-z_]{2,40}$/.test(key)) throw new Error('bad key'); vault.data[key] = value; vault.save(); return true; },
 };

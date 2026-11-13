@@ -107,10 +107,10 @@ function kitView(phrase, firstTime) {
     <h1>Write these 24 words down</h1><div class="muted">${firstTime ? 'Step 2 of 3' : 'Your new Recovery Kit. The old one no longer works.'}</div>
     <div class="warnbox mt14">If you forget your password and lose these words, your data cannot be opened by anyone, not even by Mitakshara support.</div>
     ${kitHtml(phrase)}
-    <div class="flex"><button class="btn ghost" id="k_print">Print</button><span class="grow"></span><button class="btn" id="k_next">I have written them down</button></div>
+    <div class="flex"><button class="btn ghost" id="k_print">Save as PDF to print</button><span class="grow"></span><button class="btn" id="k_next">I have written them down</button></div>
     <div id="printkit" class="hidden"><div class="kit-title">Mitakshara Recovery Kit</div><p>Account: ${esc(S.status.vault.profile?.email || '')} &middot; Created ${fd(new Date())}</p>${kitHtml(phrase)}<p>Keep this paper safe. Anyone with these words and your computer can reset your password.</p></div>
    </div></div></div>`;
-  $('#k_print').onclick = () => { $('#printkit').classList.remove('hidden'); window.print(); $('#printkit').classList.add('hidden'); };
+  $('#k_print').onclick = async () => { const done = busy($('#k_print'), 'Preparing PDF...'); try { const r = await call('saveKitPdf', { phrase }); if (r.saved) toast('Saved and opened. Print it, then delete the PDF file.'); } catch (e) { toast(e.message); } done(); };
   $('#k_next').onclick = () => confirmKitView(phrase, firstTime);
 }
 function confirmKitView(phrase, firstTime) {
