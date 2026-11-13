@@ -146,3 +146,6 @@ label{display:block;font-size:12.5px;color:var(--muted);margin:12px 0 4px}
 .lchip button{border:none;background:#fff;border-radius:50%;width:20px;height:20px;line-height:18px;color:var(--muted)}
 .w-auto{width:auto}.right{text-align:right}.nomb{margin:0}
 @media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.filters{grid-template-columns:repeat(3,minmax(0,1fr))}.dgrid{grid-template-columns:1fr 1fr}}
+.codechip{font-size:13px;background:#0F2A44;color:#E9DCC4;border-radius:6px;padding:3px 8px;vertical-align:middle;font-weight:600}
+.codebar{border:1px dashed #D9D0BE;border-radius:10px;padding:8px 12px;margin-bottom:8px;background:#FBF8F2}
+.codebar .barcode{height:42px;max-width:300px}

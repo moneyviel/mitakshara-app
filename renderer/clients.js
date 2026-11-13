@@ -7,7 +7,17 @@ async function loadD(force) {
   D.clients = (await call('getData', { key: 'clients' })) || [];
   D.documents = (await call('getData', { key: 'documents' })) || [];
   D.lists = { ...DEFAULT_LISTS, ...((await call('getData', { key: 'lists' })) || {}) };
+  D.counters = (await call('getData', { key: 'counters' })) || {};
   D.loaded = true;
+  // give every client a permanent client code (older records get one now)
+  const missing = D.clients.filter(c => !c.code).sort((a, b) => (a.created || '').localeCompare(b.created || ''));
+  if (missing.length) { missing.forEach(c => c.code = nextClientCode(c.created)); await saveD('clients', 'counters'); }
+}
+/* Client code: C + year joined + running number, e.g. C26-0001. Never changes, never reused. */
+function nextClientCode(when) {
+  const yy = String(new Date(when || Date.now()).getFullYear()).slice(2);
+  const k = 'client_' + yy; D.counters[k] = (D.counters[k] || 0) + 1;
+  return 'C' + yy + '-' + String(D.counters[k]).padStart(4, '0');
 }
 async function saveD(...keys) { for (const k of keys) await call('setData', { key: k, value: D[k] }); }
 window.mk.onLocked(() => { D.loaded = false; D.clients = []; D.documents = []; });
@@ -88,15 +98,15 @@ PAGES.Clients = async () => {
   page(`<div class="top"><div><h1>Clients</h1><div class="muted">Everything starts here. Search finds a client as you type.</div></div><button class="btn" id="c_add">Add client</button></div>
    <div class="kpis">${boxes.map(([k, t, n]) => `<button class="card kpi ${F.box === k || (!F.box && k === 'all') ? 'on' : ''}" data-box="${k}"><div class="muted small">${t}</div><div class="v">${n}</div></button>`).join('')}</div>
    <div class="card mb14"><div class="filters">
-     <div class="span2"><label>Search</label><input id="c_q" value="${esc(F.q)}" placeholder="Name, mobile, email, PAN, city or other side"></div>
+     <div class="span2"><label>Search</label><input id="c_q" value="${esc(F.q)}" placeholder="Client code, name, mobile, email, PAN, city or other side"></div>
      ${sel('type', 'Client type', L('client_types'))}${sel('status', 'Status', ['Active', 'Inactive'])}${sel('state', 'State', uniq(stateOf))}${sel('city', 'City', uniq(cityOf))}
      ${sel('lang', 'Language', uniq(c => c.language))}${sel('ref', 'Referred by', uniq(c => c.referred_by))}
      <div><label>Documents</label><select data-cf="docs"><option value="">All</option><option value="pending" ${F.docs === 'pending' ? 'selected' : ''}>Some pending</option><option value="complete" ${F.docs === 'complete' ? 'selected' : ''}>Nothing pending</option></select></div>
      <div><label>&nbsp;</label><button class="btn ghost wide" id="c_clear">Clear</button></div></div></div>
    <div class="card"><div class="flex between mb14"><h2 class="nomb">Client list</h2><span class="muted small"><span id="c_count">${list.length}</span> shown</span></div>
-   ${C.length ? `<table class="tbl" id="c_tbl"><thead><tr><th>Client</th><th>Mobile</th><th>City, State</th><th>Documents</th><th>Referred by</th><th>Added</th></tr></thead><tbody>
-    ${list.map(c => { const docs = clientDocs(c.id), p = pendingDocs(c.id).length; return `<tr class="click" data-open="${c.id}" data-s="${esc([c.name, c.mobile, c.alt_mobile, c.email, c.pan, cityOf(c), stateOf(c), c.opposite_party, c.parent_name, c.signatory].join(' ').toLowerCase())}">
-      <td><b>${esc(c.name)}</b> ${isOrg(c.type) ? `<span class="tag grey">${esc(c.type)}</span>` : ''}${c.status === 'Inactive' ? ' <span class="tag warn">Inactive</span>' : ''}<div class="small muted">${esc(c.relation && c.parent_name ? c.relation + ' ' + c.parent_name : c.signatory ? 'Through ' + c.signatory : '')}</div></td>
+   ${C.length ? `<table class="tbl" id="c_tbl"><thead><tr><th>Code</th><th>Client</th><th>Mobile</th><th>City, State</th><th>Documents</th><th>Referred by</th><th>Added</th></tr></thead><tbody>
+    ${list.map(c => { const docs = clientDocs(c.id), p = pendingDocs(c.id).length; return `<tr class="click" data-open="${c.id}" data-s="${esc([c.code, c.name, c.mobile, c.alt_mobile, c.email, c.pan, cityOf(c), stateOf(c), c.opposite_party, c.parent_name, c.signatory].join(' ').toLowerCase())}">
+      <td class="mono small">${esc(c.code || '')}</td><td><b>${esc(c.name)}</b> ${isOrg(c.type) ? `<span class="tag grey">${esc(c.type)}</span>` : ''}${c.status === 'Inactive' ? ' <span class="tag warn">Inactive</span>' : ''}<div class="small muted">${esc(c.relation && c.parent_name ? c.relation + ' ' + c.parent_name : c.signatory ? 'Through ' + c.signatory : '')}</div></td>
       <td>${esc(c.mobile || '-')}</td><td>${esc([cityOf(c), stateOf(c)].filter(Boolean).join(', ') || '-')}</td>
       <td>${docs.length}${p ? ` <span class="tag warn">${p} pending</span>` : ''}</td><td>${esc(c.referred_by || '-')}</td><td>${fd(c.created)}</td></tr>`; }).join('')}
     </tbody></table><div class="muted center hidden mt14" id="c_none">No client matches the search.</div>` : `<div class="empty"><b>No clients yet.</b><div class="muted">Press <b>Add client</b> to add your first client with their documents.</div></div>`}</div>`);
@@ -243,9 +253,9 @@ function clientForm(id, draft) {
     }
     save.confirmed = false;
     const now = new Date().toISOString();
-    if (!id) { o.id = uid(); o.created = now; D.clients.push(o); } else { o.updated = now; D.clients[D.clients.findIndex(x => x.id === id)] = o; }
+    if (!id) { o.id = uid(); o.created = now; o.code = nextClientCode(now); D.clients.push(o); } else { o.updated = now; D.clients[D.clients.findIndex(x => x.id === id)] = o; }
     for (const d of docs) D.documents.push({ id: uid(), client_id: o.id, case_id: null, ...d, created: now });
-    await saveD('clients', 'documents');
+    await saveD('clients', 'documents', 'counters');
     newFiles.length = 0;
     toast(id ? 'Client updated.' : `Client added${docs.length ? ' with ' + docs.length + ' document' + (docs.length === 1 ? '' : 's') : ''}.`);
     S.cv = { mode: 'detail', id: o.id, tab: 'Overview' }; PAGES.Clients();
@@ -263,6 +273,7 @@ function clientDetail(id) {
   let body = '';
   if (T === 'Overview') body = `<div class="grid g2">
      <div class="card"><h2>Details</h2>
+      ${c.code ? `<div class="codebar"><div class="barcode">${window.code128svg(c.code)}</div><div class="small muted">Client code <b class="mono navytext">${esc(c.code)}</b> &middot; use it on files, folders and invoices</div></div>` : ''}
       ${rowkv('Client type', esc(c.type))}${rowkv(isOrg(c.type) ? 'Authorised signatory' : 'Relation', esc(isOrg(c.type) ? [c.signatory, c.designation].filter(Boolean).join(', ') : c.relation && c.parent_name ? c.relation + ' ' + c.parent_name : ''))}
       ${rowkv('Date of birth / age', esc([c.dob ? fd(c.dob) : '', c.age ? c.age + ' years' : ''].filter(Boolean).join(' · ')))}${rowkv('Gender', esc(c.gender))}${rowkv('Occupation', esc(c.occupation))}
       ${rowkv('PAN', esc(c.pan))}${rowkv('GSTIN', esc(c.gstin))}${rowkv('Registration no.', esc(c.regno))}${rowkv('ID proof', esc(c.id_type ? c.id_type + (c.id_last4 ? ' ending ' + c.id_last4 : '') : ''))}
@@ -274,11 +285,11 @@ function clientDetail(id) {
        ${!c.opposite_party && !c.referred_by && !c.matter_note ? '<div class="muted">Nothing recorded yet.</div>' : ''}</div>
       <div class="card"><h2>Documents</h2><div class="row"><span>${docs.length} document${docs.length === 1 ? '' : 's'}</span>${pend.length ? `<span class="tag warn">${pend.length} pending</span>` : '<span class="tag ok">Nothing pending</span>'}</div>${pend.map(d => `<div class="row small"><span>${esc(d.name)}</span><span class="muted">${esc(d.group)}</span></div>`).join('')}<button class="btn ghost sm mt8" data-tab2="Documents">Open documents</button></div></div></div>`;
   if (T === 'Documents') body = docsTab(c, docs);
-  if (T === 'Cases') body = `<div class="card soon"><h2>Cases come in Stage 3</h2><div class="muted">You will open cases for this client here, with hearings, checklists and outcomes.</div></div>`;
-  page(`<div class="top"><div><a id="cd_back">&larr; All clients</a><h1 class="mt8">${esc(c.name)} ${c.status === 'Inactive' ? '<span class="tag warn">Inactive</span>' : ''}</h1>
+  if (T === 'Active cases' || T === 'Case history') body = `<div class="card soon"><h2>${T === 'Active cases' ? 'Active cases' : 'Completed cases'} come in Stage 3</h2><div class="muted">Each case will get its own case code linked to this client code (for example ${esc(c.code || 'C26-0001')}/01), with hearings, checklists, outcomes and insights.</div></div>`;
+  page(`<div class="top"><div><a id="cd_back">&larr; All clients</a><h1 class="mt8">${esc(c.name)} <span class="codechip mono">${esc(c.code || '')}</span> ${c.status === 'Inactive' ? '<span class="tag warn">Inactive</span>' : ''}</h1>
      <div class="muted">${esc([isOrg(c.type) ? c.type : '', c.mobile, [cityOf(c), stateOf(c)].filter(Boolean).join(', ')].filter(Boolean).join(' · '))}</div></div>
     <div class="flex"><button class="btn ghost" id="cd_status">${c.status === 'Inactive' ? 'Mark active' : 'Mark inactive'}</button><button class="btn ghost" id="cd_del">Delete</button><button class="btn" id="cd_edit">Edit client</button></div></div>
-   <div class="tabs">${['Overview', 'Documents', 'Cases'].map(t => `<button class="${t === T ? 'on' : ''}" data-tab2="${t}">${t}${t === 'Documents' ? ` <span class="cnt">${docs.length}</span>` : ''}</button>`).join('')}</div>${body}`);
+   <div class="tabs">${['Overview', 'Documents', 'Active cases', 'Case history'].map(t => `<button class="${t === T ? 'on' : ''}" data-tab2="${t}">${t}${t === 'Documents' ? ` <span class="cnt">${docs.length}</span>` : ''}</button>`).join('')}</div>${body}`);
   $('#cd_back').onclick = () => { S.cv = { mode: 'list' }; PAGES.Clients(); };
   $('#cd_edit').onclick = () => { S.cv = { mode: 'form', id }; PAGES.Clients(); };
   $$('[data-tab2]').forEach(b => b.onclick = () => { S.cv.tab = b.dataset.tab2; PAGES.Clients(); });
