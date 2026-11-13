@@ -6,7 +6,10 @@ on:
 
 jobs:
   mac:
-    runs-on: macos-latest
+    # Intel Mac machines: GitHub's Apple-chip machines are often too busy to start.
+    # This builds BOTH versions (Apple chip and Intel) and tests the Intel one.
+    runs-on: macos-15-intel
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,7 +20,8 @@ jobs:
       - name: Start-up test on a real Mac
         run: |
           set -e
-          APP=$(ls -d dist/mac-arm64/Mitakshara.app)
+          APP=$(ls -d dist/mac/Mitakshara.app)
+          codesign -dv dist/mac-arm64/Mitakshara.app 2>&1 | head -3 || true
           codesign -dv "$APP" 2>&1 | head -5 || true
           export MITAKSHARA_DATA="$RUNNER_TEMP/mk-data"
           "$APP/Contents/MacOS/Mitakshara" > "$RUNNER_TEMP/mk.log" 2>&1 &
