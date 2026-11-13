@@ -30,6 +30,8 @@ const today = () => new Date().toISOString().slice(0, 10);
 function ageFrom(dob) { if (!dob) return ''; const d = new Date(dob), n = new Date(); let a = n.getFullYear() - d.getFullYear(); if (n < new Date(n.getFullYear(), d.getMonth(), d.getDate())) a--; return a >= 0 && a < 130 ? a : ''; }
 const clientDocs = id => D.documents.filter(d => d.client_id === id);
 const pendingDocs = id => clientDocs(id).filter(d => d.status === 'Pending');
+const idsOf = c => c.ids || (c.id_type || c.id_last4 ? [{ type: c.id_type || '', last4: c.id_last4 || '' }] : []);
+const idsText = c => idsOf(c).map(x => x.type + (x.last4 ? ' ending ' + x.last4 : '')).join(', ');
 const cityOf = c => c.addr?.city || '';
 const stateOf = c => c.addr?.state || '';
 
@@ -105,7 +107,7 @@ PAGES.Clients = async () => {
      <div><label>&nbsp;</label><button class="btn ghost wide" id="c_clear">Clear</button></div></div></div>
    <div class="card"><div class="flex between mb14"><h2 class="nomb">Client list</h2><span class="muted small"><span id="c_count">${list.length}</span> shown</span></div>
    ${C.length ? `<table class="tbl" id="c_tbl"><thead><tr><th>Code</th><th>Client</th><th>Mobile</th><th>City, State</th><th>Documents</th><th>Referred by</th><th>Added</th></tr></thead><tbody>
-    ${list.map(c => { const docs = clientDocs(c.id), p = pendingDocs(c.id).length; return `<tr class="click" data-open="${c.id}" data-s="${esc([c.code, c.name, c.mobile, c.alt_mobile, c.email, c.pan, cityOf(c), stateOf(c), c.opposite_party, c.parent_name, c.signatory].join(' ').toLowerCase())}">
+    ${list.map(c => { const docs = clientDocs(c.id), p = pendingDocs(c.id).length; return `<tr class="click" data-open="${c.id}" data-s="${esc([c.code, c.name, c.mobile, c.alt_mobile, c.email, c.pan, cityOf(c), stateOf(c), c.opposite_party, c.parent_name, c.signatory, c.addr?.district, c.addr?.pin, idsText(c)].join(' ').toLowerCase())}">
       <td class="mono small">${esc(c.code || '')}</td><td><b>${esc(c.name)}</b> ${isOrg(c.type) ? `<span class="tag grey">${esc(c.type)}</span>` : ''}${c.status === 'Inactive' ? ' <span class="tag warn">Inactive</span>' : ''}<div class="small muted">${esc(c.relation && c.parent_name ? c.relation + ' ' + c.parent_name : c.signatory ? 'Through ' + c.signatory : '')}</div></td>
       <td>${esc(c.mobile || '-')}</td><td>${esc([cityOf(c), stateOf(c)].filter(Boolean).join(', ') || '-')}</td>
       <td>${docs.length}${p ? ` <span class="tag warn">${p} pending</span>` : ''}</td><td>${esc(c.referred_by || '-')}</td><td>${fd(c.created)}</td></tr>`; }).join('')}
@@ -119,11 +121,60 @@ PAGES.Clients = async () => {
   q.addEventListener('input', filt); filt(); if (F.q) { q.focus(); q.setSelectionRange(F.q.length, F.q.length); }
 };
 
+/* ---------- address with PIN-first auto-fill (India Post directory, offline) ---------- */
+function addrFields(p, x, label) {
+  x = x || {};
+  return `<div class="span4"><label>${label} (house, street, area)</label><input id="${p}_line" value="${esc(x.line || '')}"></div>
+   <div><label>PIN code</label><input id="${p}_pin" value="${esc(x.pin || '')}" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="6 digits: fills the rest"><div class="small pinmsg" id="${p}_pinmsg"></div></div>
+   <div><label>State</label><select id="${p}_state">${opts(L('states'), x.state, 'Select state')}</select></div>
+   <div><label>District</label><select id="${p}_district"><option value="">Select state first</option>${x.district ? `<option selected>${esc(x.district)}</option>` : ''}</select><input id="${p}_district_other" class="hidden mt8" placeholder="Type the district name"></div>
+   <div><label>City / town / area</label><input id="${p}_city" value="${esc(x.city || '')}" list="${p}_cities" autocomplete="off" placeholder="Type or pick from the list"><datalist id="${p}_cities"></datalist></div>`;
+}
+async function wireAddr(p) {
+  const el = s => document.getElementById(p + '_' + s);
+  const pin = el('pin'), st = el('state'), di = el('district'), oth = el('district_other'), city = el('city'), dl = el('cities'), msg = el('pinmsg');
+  let last = null; // last PIN result, used for the cross-check on save
+  const fillDistricts = (list, chosen, hint) => {
+    const L2 = [...list]; if (chosen && !L2.includes(chosen)) L2.unshift(chosen);
+    di.innerHTML = `<option value="">${esc(hint || (st.value ? 'Select district' : 'Select state first'))}</option>` + L2.map(d => `<option ${d === chosen ? 'selected' : ''}>${esc(d)}</option>`).join('') + (st.value ? '<option value="__other">Other (type it)</option>' : '');
+    oth.classList.toggle('hidden', di.value !== '__other');
+  };
+  const fillCities = (offices, districts) => { const seen = new Set(); dl.innerHTML = [...districts, ...offices].filter(o => !seen.has(o.toLowerCase()) && seen.add(o.toLowerCase())).map(o => `<option value="${esc(o)}">`).join(''); };
+  di.onchange = () => { oth.classList.toggle('hidden', di.value !== '__other'); if (di.value === '__other') oth.focus(); };
+  st.onchange = async () => fillDistricts(st.value ? await call('districtsOf', { state: st.value }) : [], '');
+  const say = (t, cls) => { msg.className = 'small pinmsg ' + (cls || ''); msg.textContent = t; };
+  const look = async () => {
+    const v = pin.value; last = null;
+    if (v.length < 6) { say(v ? `${6 - v.length} more digit${6 - v.length === 1 ? '' : 's'}` : ''); return; }
+    const r = await call('pinInfo', { pin: v });
+    if (!r.found) { say('Not in the India Post list. Please choose the state and district yourself.', 'warntext'); return; }
+    last = r;
+    // state: fill only when the PIN belongs to exactly one state
+    if (r.states.length === 1) st.value = r.states[0]; else if (!r.states.includes(st.value)) st.value = '';
+    if (r.districts.length === 1) fillDistricts(await call('districtsOf', { state: st.value }), r.districts[0]);
+    else fillDistricts(r.districts, '', `Choose one of ${r.districts.length} districts`);
+    fillCities(r.offices, r.districts);
+    if (!city.value && r.offices.length === 1) city.value = r.offices[0];
+    const sure = r.states.length === 1 && r.districts.length === 1;
+    say(sure ? `✓ ${r.districts[0]}, ${r.states[0]}. Pick the area from the City list (${r.offices.length} post office${r.offices.length === 1 ? '' : 's'}).`
+             : `This PIN is shared by ${r.states.length > 1 ? r.states.join(' and ') : r.districts.join(', ')}. Please choose the right one.`, sure ? 'oktext' : 'warntext');
+  };
+  pin.addEventListener('input', () => { const c = pin.value.replace(/\D/g, '').replace(/^0+/, '').slice(0, 6); if (c !== pin.value) pin.value = c; look(); });
+  // existing record: show its districts and the PIN's areas, but never overwrite what was saved
+  const keep = di.value;
+  if (st.value) fillDistricts(await call('districtsOf', { state: st.value }), keep);
+  if (/^[1-9]\d{5}$/.test(pin.value)) { const r = await call('pinInfo', { pin: pin.value }); if (r.found) { last = r; fillCities(r.offices, r.districts); } }
+  return {
+    read: () => ({ line: el('line').value.trim(), city: city.value.trim(), district: di.value === '__other' ? oth.value.trim() : di.value, state: st.value, pin: pin.value.trim() }),
+    check: () => { const a = { state: st.value, district: di.value }; if (!last || !a.state) return ''; if (!last.states.includes(a.state)) return `PIN ${pin.value} belongs to ${last.states.join(' / ')}, but the state chosen is ${a.state}.`; if (a.district && a.district !== '__other' && !last.districts.includes(a.district)) return `PIN ${pin.value} is in ${last.districts.join(' / ')} district, but the district chosen is ${a.district}.`; return ''; },
+  };
+}
+
 /* ---------- add / edit client ---------- */
 function clientForm(id, draft) {
   const c = draft ? draft : id ? JSON.parse(JSON.stringify(D.clients.find(x => x.id === id))) : { type: 'Individual', relation: 'S/o', language: 'Hindi', addr: {}, addr2: {}, same_addr: true, status: 'Active', consent: false };
   const existingDocs = id ? clientDocs(id) : [];
-  const rows = []; const newFiles = [];
+  const rows = []; const newFiles = []; const idRows = []; const A = {};
   const v = k => esc(c[k] ?? '');
   const a = (k, which = 'addr') => esc((c[which] || {})[k] ?? '');
   const org = isOrg(c.type);
@@ -143,18 +194,12 @@ function clientForm(id, draft) {
     <section class="card"><h2>3. Contact</h2><div class="g4">
      <div><label>Mobile *</label><input id="f_mobile" value="${v('mobile')}" inputmode="tel" placeholder="10-digit mobile"></div><div><label>Alternate mobile</label><input id="f_alt_mobile" value="${v('alt_mobile')}" inputmode="tel"></div>
      <div><label>Email</label><input id="f_email" type="email" value="${v('email')}"></div><div><label>Preferred language</label><select id="f_language">${opts(L('languages'), c.language, 'Select')}</select></div></div></section>
-    <section class="card"><h2>4. Address</h2><div class="small muted">Courts need the complete address in the memo of parties.</div><div class="g4 mt8">
-     <div class="span4"><label>${org ? 'Registered office address' : 'Permanent address'} (house, street, area)</label><input id="a_line" value="${a('line')}"></div>
-     <div><label>City / town</label><input id="a_city" value="${a('city')}"></div><div><label>District</label><input id="a_district" value="${a('district')}"></div>
-     <div><label>State</label><select id="a_state">${opts(L('states'), (c.addr || {}).state, 'Select state')}</select></div><div><label>PIN code</label><input id="a_pin" value="${a('pin')}" maxlength="6" inputmode="numeric"></div></div>
+    <section class="card"><h2>4. Address</h2><div class="small muted">Courts need the complete address in the memo of parties. Type the PIN code first: state, district and area are filled from the India Post list.</div><div class="g4 mt8">
+     ${addrFields('a', c.addr, org ? 'Registered office address' : 'Permanent address')}</div>
      <label class="check mt14"><input type="checkbox" id="f_same" ${c.same_addr !== false ? 'checked' : ''}> ${org ? 'Correspondence address is the same' : 'Current address is the same as permanent address'}</label>
-     <div class="g4 mt8 ${c.same_addr !== false ? 'hidden' : ''}" id="addr2">
-      <div class="span4"><label>${org ? 'Correspondence' : 'Current'} address</label><input id="b_line" value="${a('line', 'addr2')}"></div>
-      <div><label>City / town</label><input id="b_city" value="${a('city', 'addr2')}"></div><div><label>District</label><input id="b_district" value="${a('district', 'addr2')}"></div>
-      <div><label>State</label><select id="b_state">${opts(L('states'), (c.addr2 || {}).state, 'Select state')}</select></div><div><label>PIN code</label><input id="b_pin" value="${a('pin', 'addr2')}" maxlength="6" inputmode="numeric"></div></div></section>
-    <section class="card"><h2>5. ID proof</h2><div class="g4">
-     <div><label>ID type</label><select id="f_id_type">${opts(L('id_types'), c.id_type, 'Select')}</select></div><div><label>Last 4 characters only</label><input id="f_id_last4" value="${v('id_last4')}" maxlength="4" placeholder="e.g. 4821"></div>
-     <div class="span2 small muted idnote">For safety, full ID numbers are never stored. Attach a copy of the ID in Documents below if needed.</div></div></section>
+     <div class="g4 mt8 ${c.same_addr !== false ? 'hidden' : ''}" id="addr2">${addrFields('b', c.addr2, org ? 'Correspondence address' : 'Current address')}</div></section>
+    <section class="card"><h2>5. ID proof</h2><div class="small muted">Add every ID the client gave. For safety, only the last 4 characters are kept, never the full number. An attached copy is also saved under Documents (Identity &amp; KYC).</div>
+     <div id="idrows" class="mt14"></div><button class="btn ghost" id="id_add" type="button">+ Add ID proof</button></section>
     <section class="card"><h2>6. Matter and contacts</h2><div class="g4">
      <div class="span2"><label>Other side / opposite party (used for conflict check)</label><input id="f_opposite_party" value="${v('opposite_party')}"></div>
      <div><label>Referred by</label><select id="f_referred_by">${opts(L('referral_sources'), c.referred_by, 'Select')}</select></div><div><label>Referred by: name</label><input id="f_referrer_name" value="${v('referrer_name')}"></div>
@@ -166,23 +211,25 @@ function clientForm(id, draft) {
      <div id="docrows" class="mt14"></div><button class="btn ghost" id="d_add" type="button">+ Add document</button></section>
     <section class="card"><h2>8. Consent and notes</h2>
      <label class="check"><input type="checkbox" id="f_consent" ${c.consent ? 'checked' : ''}> The client agreed that their details and documents are kept for handling their matters (data protection consent).</label>
-     <label>Internal notes (only you see these)</label><textarea id="f_notes" rows="3">${v('notes')}</textarea></section>
+     <label>Private notes <span class="muted small">(kept off the memo of parties, letters and invoices)</span></label><textarea id="f_notes" rows="3">${v('notes')}</textarea></section>
    </div>
    <div class="flex end mt20"><button class="btn ghost" id="f_cancel2">Cancel</button><button class="btn" id="f_save2">Save client</button></div><div class="err center" id="f_err"></div>`);
 
   const collect = () => {
     const g = id => { const el = document.getElementById(id); return el ? el.value.trim() : undefined; };
     const o = { ...c };
-    ['name', 'signatory', 'designation', 'pan', 'gstin', 'regno', 'relation', 'parent_name', 'dob', 'age', 'gender', 'occupation', 'mobile', 'alt_mobile', 'email', 'language', 'id_type', 'id_last4', 'opposite_party', 'referred_by', 'referrer_name', 'fc_name', 'fc_relation', 'fc_mobile', 'matter_note', 'notes'].forEach(k => { const val = g('f_' + k); if (val !== undefined) o[k] = val; });
+    ['name', 'signatory', 'designation', 'pan', 'gstin', 'regno', 'relation', 'parent_name', 'dob', 'age', 'gender', 'occupation', 'mobile', 'alt_mobile', 'email', 'language', 'opposite_party', 'referred_by', 'referrer_name', 'fc_name', 'fc_relation', 'fc_mobile', 'matter_note', 'notes'].forEach(k => { const val = g('f_' + k); if (val !== undefined) o[k] = val; });
     if (o.pan) o.pan = o.pan.toUpperCase(); if (o.gstin) o.gstin = o.gstin.toUpperCase();
-    o.addr = { line: g('a_line'), city: g('a_city'), district: g('a_district'), state: g('a_state'), pin: g('a_pin') };
+    o.addr = A.a ? A.a.read() : o.addr || {};
     o.same_addr = $('#f_same').checked;
-    o.addr2 = o.same_addr ? {} : { line: g('b_line'), city: g('b_city'), district: g('b_district'), state: g('b_state'), pin: g('b_pin') };
+    o.addr2 = o.same_addr ? {} : A.b ? A.b.read() : o.addr2 || {};
+    o.ids = idRows.map(r => r.read()).filter(x => x.type || x.last4 || x.files.length).map(({ type, last4 }) => ({ type, last4: last4.toUpperCase() }));
+    delete o.id_type; delete o.id_last4;
     o.consent = $('#f_consent').checked; if (o.consent && !c.consent) o.consent_at = new Date().toISOString();
     return o;
   };
   // switching type redraws the form but keeps what was typed
-  $$('#f_type button').forEach(b => b.onclick = () => { const d = collect(); d.type = b.dataset.t; clientForm.keep = rows.map(r => r.read()); clientForm.newFiles = [...newFiles]; clientForm(id, d); });
+  $$('#f_type button').forEach(b => b.onclick = () => { const d = collect(); d.type = b.dataset.t; clientForm.keep = rows.map(r => r.read()); clientForm.keepIds = idRows.map(r => r.read()); clientForm.newFiles = [...newFiles]; clientForm(id, d); });
   const dob = $('#f_dob'); if (dob) dob.onchange = () => { const ag = ageFrom(dob.value); if (ag !== '') $('#f_age').value = ag; };
   $('#f_same').onchange = e => $('#addr2').classList.toggle('hidden', e.target.checked);
 
@@ -200,7 +247,7 @@ function clientForm(id, draft) {
       <div class="drop small muted">or drag files here</div>`;
     $('#docrows').appendChild(r.el);
     const q = s => r.el.querySelector(s);
-    const drawFiles = () => { q('.d_flist').innerHTML = r.files.length ? r.files.map(f => `<span class="fchip">${esc(f.filename)} <span class="muted">${fsize(f.size)}</span><button type="button" data-rm="${f.fid}" title="Remove file">&times;</button></span>`).join('') : 'No file attached'; r.el.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => { r.files = r.files.filter(f => f.fid !== b.dataset.rm); if (newFiles.includes(b.dataset.rm)) await call('deleteFile', { fid: b.dataset.rm }); drawFiles(); }); };
+    const drawFiles = () => { q('.d_flist').innerHTML = r.files.length ? r.files.map((f, i) => `<span class="fchip"><a data-pv="${i}" title="Preview">${esc(f.filename)}</a> <span class="muted">${fsize(f.size)}</span><button type="button" data-rm="${f.fid}" title="Remove file">&times;</button></span>`).join('') : 'No file attached'; r.el.querySelectorAll('[data-pv]').forEach(a => a.onclick = () => openViewer(r.files.map(f => ({ ...f, title: q('.d_name').value.trim() })), +a.dataset.pv)); r.el.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => { r.files = r.files.filter(f => f.fid !== b.dataset.rm); if (newFiles.includes(b.dataset.rm)) await call('deleteFile', { fid: b.dataset.rm }); drawFiles(); }); };
     const addPaths = async paths => { try { const got = await call('addFiles', { paths }); got.forEach(f => newFiles.push(f.fid)); r.files.push(...got); drawFiles(); if (got.length && q('.d_status').value === 'Pending') q('.d_status').value = 'Received'; } catch (e) { toast(e.message); } };
     q('.d_attach').onclick = () => addPaths(null);
     r.el.addEventListener('dragover', e => { e.preventDefault(); r.el.classList.add('over'); });
@@ -217,6 +264,30 @@ function clientForm(id, draft) {
   clientForm.keep = null; clientForm.newFiles = null;
   $('#d_add').onclick = () => { const r = addRow(); r.el.querySelector('.d_group').focus(); };
 
+  function addIdRow(init = {}) {
+    const r = { files: [...(init.files || [])], el: document.createElement('div') }; r.el.className = 'docrow idrow';
+    r.el.innerHTML = `<div class="idgrid"><div><label>ID type</label><select class="i_type">${opts(L('id_types'), init.type || '', 'Select')}</select></div>
+      <div><label>Last 4 characters only</label><input class="i_last4 upper" value="${esc(init.last4 || '')}" maxlength="4" placeholder="e.g. 4821"></div>
+      <div class="dfiles"><label>Copy of the ID (optional)</label><div class="flex"><button type="button" class="btn ghost sm i_attach">Attach copy</button><span class="small muted i_flist"></span></div></div>
+      <div class="dx"><label>&nbsp;</label><button type="button" class="btn ghost sm i_remove">Remove</button></div></div>`;
+    $('#idrows').appendChild(r.el); const q = s => r.el.querySelector(s);
+    const draw = () => { q('.i_flist').innerHTML = r.files.length ? r.files.map((f, i) => `<span class="fchip"><a data-pv="${i}" title="Preview">${esc(f.filename)}</a> <span class="muted">${fsize(f.size)}</span><button type="button" data-rm="${f.fid}" title="Remove file">&times;</button></span>`).join('') : 'No copy attached';
+      r.el.querySelectorAll('[data-pv]').forEach(a => a.onclick = () => openViewer(r.files.map(f => ({ ...f, title: (q('.i_type').value || 'ID') + ' copy' })), +a.dataset.pv));
+      r.el.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => { r.files = r.files.filter(f => f.fid !== b.dataset.rm); if (newFiles.includes(b.dataset.rm)) await call('deleteFile', { fid: b.dataset.rm }); draw(); }); };
+    const add = async paths => { try { const got = await call('addFiles', { paths }); got.forEach(f => newFiles.push(f.fid)); r.files.push(...got); draw(); } catch (e) { toast(e.message); } };
+    q('.i_attach').onclick = () => add(null);
+    r.el.addEventListener('dragover', e => { e.preventDefault(); r.el.classList.add('over'); }); r.el.addEventListener('dragleave', () => r.el.classList.remove('over'));
+    r.el.addEventListener('drop', e => { e.preventDefault(); r.el.classList.remove('over'); const ps = [...e.dataTransfer.files].map(f => window.mk.pathOf(f)).filter(Boolean); if (ps.length) add(ps); });
+    q('.i_last4').addEventListener('input', e => { const v = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 4); if (v !== e.target.value) e.target.value = v; });
+    q('.i_remove').onclick = async () => { for (const f of r.files) if (newFiles.includes(f.fid)) await call('deleteFile', { fid: f.fid }); idRows.splice(idRows.indexOf(r), 1); r.el.remove(); };
+    r.read = () => ({ type: q('.i_type').value, last4: q('.i_last4').value.trim(), files: r.files });
+    draw(); idRows.push(r); return r;
+  }
+  const startIds = clientForm.keepIds && clientForm.keepIds.length ? clientForm.keepIds : idsOf(c).length ? idsOf(c) : [{}];
+  startIds.forEach(addIdRow); clientForm.keepIds = null;
+  $('#id_add').onclick = () => { const r = addIdRow(); r.el.querySelector('.i_type').focus(); };
+  wireAddr('a').then(x => A.a = x); wireAddr('b').then(x => A.b = x);
+
   const back = async () => { for (const fid of newFiles) await call('deleteFile', { fid }); S.cv = id ? { mode: 'detail', id, tab: 'Overview' } : { mode: 'list' }; PAGES.Clients(); };
   $('#f_back').onclick = back; $('#f_cancel').onclick = back; $('#f_cancel2').onclick = back;
   const save = async () => {
@@ -228,11 +299,12 @@ function clientForm(id, draft) {
     if (o.alt_mobile && digits(o.alt_mobile).length !== 10) err.push('Alternate mobile should have 10 digits.');
     if (o.fc_mobile && digits(o.fc_mobile).length !== 10) err.push('Family contact mobile should have 10 digits.');
     if (o.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(o.email)) err.push('Email address does not look right.');
-    if (o.addr.pin && !/^\d{6}$/.test(o.addr.pin)) err.push('PIN code should be 6 digits.');
-    if (o.addr2.pin && !/^\d{6}$/.test(o.addr2.pin)) err.push('Second PIN code should be 6 digits.');
+    if (o.addr.pin && !/^[1-9]\d{5}$/.test(o.addr.pin)) err.push('PIN code should be exactly 6 digits.');
+    if (o.addr2.pin && !/^[1-9]\d{5}$/.test(o.addr2.pin)) err.push('Second PIN code should be exactly 6 digits.');
     if (o.pan && !/^[A-Z]{5}\d{4}[A-Z]$/.test(o.pan)) err.push('PAN should look like ABCDE1234F.');
     if (o.gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(o.gstin)) err.push('GSTIN should be 15 characters, like 08ABCDE1234F1Z5.');
-    if (o.id_last4 && !/^[A-Za-z0-9]{4}$/.test(o.id_last4)) err.push('ID proof: enter exactly the last 4 characters.');
+    const idl = idRows.map(r => r.read()).filter(x => x.type || x.last4 || x.files.length);
+    idl.forEach((x, i) => { if (!x.type) err.push(`ID proof ${i + 1}: choose the ID type.`); if (x.last4 && !/^[A-Za-z0-9]{4}$/.test(x.last4)) err.push(`ID proof ${i + 1}: enter exactly the last 4 characters.`); });
     if (o.dob && o.dob > today()) err.push('Date of birth cannot be in the future.');
     const docs = rows.map(r => r.read()).filter(d => d.name || d.files.length || d.group);
     docs.forEach((d, i) => { if (!d.name) err.push(`Document ${i + 1}: enter a document name.`); if (!d.group) err.push(`Document ${i + 1}: choose a group.`); });
@@ -245,6 +317,7 @@ function clientForm(id, draft) {
     if (dup) warn.push(`A client with the same ${digits(dup.mobile) === digits(o.mobile) ? 'mobile number' : 'name'} already exists: <b>${esc(dup.name)}</b>.`);
     if (o.opposite_party) others.filter(x => norm(x.name) && (norm(x.name) === norm(o.opposite_party))).forEach(x => warn.push(`Possible conflict: the other side, <b>${esc(o.opposite_party)}</b>, is your existing client.`));
     others.filter(x => x.opposite_party && norm(x.opposite_party) === norm(o.name)).forEach(x => warn.push(`Possible conflict: <b>${esc(o.name)}</b> is the other side for your client <b>${esc(x.name)}</b>.`));
+    [A.a && A.a.check(), !o.same_addr && A.b && A.b.check()].filter(Boolean).forEach(t => warn.push(esc(t)));
     if (!o.consent) warn.push('The data protection consent box is not ticked.');
     if (warn.length && !save.confirmed) {
       const m = modal(`<h2>Please check before saving</h2>${warn.map(w => `<div class="warnbox mt8">${w}</div>`).join('')}<div class="flex end mt14"><button class="btn ghost" data-x>Go back</button><button class="btn" id="w_go">Save anyway</button></div>`);
@@ -255,9 +328,11 @@ function clientForm(id, draft) {
     const now = new Date().toISOString();
     if (!id) { o.id = uid(); o.created = now; o.code = nextClientCode(now); D.clients.push(o); } else { o.updated = now; D.clients[D.clients.findIndex(x => x.id === id)] = o; }
     for (const d of docs) D.documents.push({ id: uid(), client_id: o.id, case_id: null, ...d, created: now });
+    for (const x of idl) if (x.files.length) D.documents.push({ id: uid(), client_id: o.id, case_id: null, group: 'Identity & KYC', name: x.type + ' copy', date: '', status: 'Received', note: x.last4 ? 'ending ' + x.last4 : '', files: x.files, created: now });
     await saveD('clients', 'documents', 'counters');
     newFiles.length = 0;
-    toast(id ? 'Client updated.' : `Client added${docs.length ? ' with ' + docs.length + ' document' + (docs.length === 1 ? '' : 's') : ''}.`);
+    const nd = docs.length + idl.filter(x => x.files.length).length;
+    toast(id ? 'Client updated.' : `Client added${nd ? ' with ' + nd + ' document' + (nd === 1 ? '' : 's') : ''}.`);
     S.cv = { mode: 'detail', id: o.id, tab: 'Overview' }; PAGES.Clients();
   };
   $('#f_save').onclick = save; $('#f_save2').onclick = save;
@@ -276,12 +351,12 @@ function clientDetail(id) {
       ${c.code ? `<div class="codebar"><div class="barcode">${window.code128svg(c.code)}</div><div class="small muted">Client code <b class="mono navytext">${esc(c.code)}</b> &middot; use it on files, folders and invoices</div></div>` : ''}
       ${rowkv('Client type', esc(c.type))}${rowkv(isOrg(c.type) ? 'Authorised signatory' : 'Relation', esc(isOrg(c.type) ? [c.signatory, c.designation].filter(Boolean).join(', ') : c.relation && c.parent_name ? c.relation + ' ' + c.parent_name : ''))}
       ${rowkv('Date of birth / age', esc([c.dob ? fd(c.dob) : '', c.age ? c.age + ' years' : ''].filter(Boolean).join(' · ')))}${rowkv('Gender', esc(c.gender))}${rowkv('Occupation', esc(c.occupation))}
-      ${rowkv('PAN', esc(c.pan))}${rowkv('GSTIN', esc(c.gstin))}${rowkv('Registration no.', esc(c.regno))}${rowkv('ID proof', esc(c.id_type ? c.id_type + (c.id_last4 ? ' ending ' + c.id_last4 : '') : ''))}
+      ${rowkv('PAN', esc(c.pan))}${rowkv('GSTIN', esc(c.gstin))}${rowkv('Registration no.', esc(c.regno))}${rowkv(idsOf(c).length > 1 ? 'ID proofs' : 'ID proof', esc(idsText(c)))}
       ${rowkv('Language', esc(c.language))}${rowkv('Client since', fd(c.created))}${rowkv('Data protection consent', c.consent ? 'Given ' + fd(c.consent_at || c.created) : '<span class="tag warn">Not recorded</span>')}</div>
      <div class="grid"><div class="card"><h2>Contact</h2>${rowkv('Mobile', esc(c.mobile))}${rowkv('Alternate', esc(c.alt_mobile))}${rowkv('Email', esc(c.email))}
        ${rowkv(isOrg(c.type) ? 'Registered office' : 'Permanent address', esc(adr(c.addr)))}${!c.same_addr ? rowkv(isOrg(c.type) ? 'Correspondence' : 'Current address', esc(adr(c.addr2))) : ''}
        ${rowkv('Family contact', esc([c.fc_name, c.fc_relation, c.fc_mobile].filter(Boolean).join(' · ')))}</div>
-      <div class="card"><h2>Matter</h2>${rowkv('Other side', esc(c.opposite_party))}${rowkv('Referred by', esc([c.referred_by, c.referrer_name].filter(Boolean).join(': ')))}${c.matter_note ? `<div class="mt8">${esc(c.matter_note)}</div>` : ''}${c.notes ? `<div class="mt8 small muted"><b>Notes:</b> ${esc(c.notes)}</div>` : ''}
+      <div class="card"><h2>Matter</h2>${rowkv('Other side', esc(c.opposite_party))}${rowkv('Referred by', esc([c.referred_by, c.referrer_name].filter(Boolean).join(': ')))}${c.matter_note ? `<div class="mt8">${esc(c.matter_note)}</div>` : ''}${c.notes ? `<div class="mt8 small muted"><b>Private notes:</b> ${esc(c.notes)}</div>` : ''}
        ${!c.opposite_party && !c.referred_by && !c.matter_note ? '<div class="muted">Nothing recorded yet.</div>' : ''}</div>
       <div class="card"><h2>Documents</h2><div class="row"><span>${docs.length} document${docs.length === 1 ? '' : 's'}</span>${pend.length ? `<span class="tag warn">${pend.length} pending</span>` : '<span class="tag ok">Nothing pending</span>'}</div>${pend.map(d => `<div class="row small"><span>${esc(d.name)}</span><span class="muted">${esc(d.group)}</span></div>`).join('')}<button class="btn ghost sm mt8" data-tab2="Documents">Open documents</button></div></div></div>`;
   if (T === 'Documents') body = docsTab(c, docs);
@@ -317,8 +392,8 @@ function docsTab(c, docs) {
     <div><label>Group</label><select id="dg">${opts(groups, F.group, 'All groups')}</select></div><div><label>&nbsp;</label><button class="btn wide" id="d_new">+ Add document</button></div></div></div>
    <div id="d_newbox"></div>
    ${byGroup.length ? byGroup.map(([g, list]) => `<div class="card mb14 dgroup"><h3>${esc(g)} <span class="muted small">${list.length}</span></h3>
-     ${list.map(d => `<div class="docline" data-s="${esc((d.name + ' ' + (d.note || '') + ' ' + g).toLowerCase())}"><div class="grow"><b>${esc(d.name)}</b>${d.date ? ` <span class="muted small">dated ${fd(d.date)}</span>` : ''}${d.note ? `<div class="small muted">${esc(d.note)}</div>` : ''}
-        <div class="mt8">${(d.files || []).map(f => `<span class="fchip">${esc(f.filename)} <span class="muted">${fsize(f.size)}</span> <a data-open-f="${f.fid}" data-n="${esc(f.filename)}">Open</a> <a data-save-f="${f.fid}" data-n="${esc(f.filename)}">Save copy</a></span>`).join('') || '<span class="small muted">No file attached</span>'}
+     ${list.map(d => `<div class="docline" data-id="${d.id}" data-s="${esc((d.name + ' ' + (d.note || '') + ' ' + g).toLowerCase())}"><div class="grow"><b>${esc(d.name)}</b>${d.date ? ` <span class="muted small">dated ${fd(d.date)}</span>` : ''}${d.note ? `<div class="small muted">${esc(d.note)}</div>` : ''}
+        <div class="mt8">${(d.files || []).map(f => `<span class="fchip"><a data-view-f="${f.fid}" title="View inside Mitakshara">${esc(f.filename)}</a> <span class="muted">${fsize(f.size)}</span> <a data-view-f="${f.fid}">View</a> <a data-save-f="${f.fid}" data-n="${esc(f.filename)}">Save copy</a></span>`).join('') || '<span class="small muted">No file attached</span>'}
         <a class="small" data-more="${d.id}">+ Attach file</a></div></div>
        <select class="w-auto" data-dstatus="${d.id}">${opts(L('doc_status'), d.status)}</select><button class="btn ghost sm" data-ddel="${d.id}" title="Delete document">Delete</button></div>`).join('')}</div>`).join('')
     : `<div class="empty card"><b>${docs.length ? 'No document matches these filters.' : 'No documents yet.'}</b><div class="muted">Press <b>+ Add document</b> to add one.</div></div>`}`;
@@ -329,7 +404,9 @@ function wireDocsTab(c) {
   $('#dg').onchange = e => { F.group = e.target.value; PAGES.Clients(); };
   const q = $('#dq'); const filt = () => { F.q = q.value; const t = q.value.trim().toLowerCase(); $$('.docline').forEach(r => r.classList.toggle('hidden', !!t && !r.dataset.s.includes(t))); $$('.dgroup').forEach(g => g.classList.toggle('hidden', !g.querySelector('.docline:not(.hidden)'))); };
   q.addEventListener('input', filt); filt();
-  $$('[data-open-f]').forEach(a => a.onclick = async () => { try { await call('openFile', { fid: a.dataset.openF, filename: a.dataset.n }); } catch (e) { toast(e.message); } });
+  // every visible file, in screen order, so Previous / Next walks through the client's documents
+  const vis = () => { const out = []; $$('.docline:not(.hidden)').forEach(r => { const d = D.documents.find(x => x.id === r.dataset.id); (d.files || []).forEach(f => out.push({ ...f, title: d.name })); }); return out; };
+  $$('[data-view-f]').forEach(a => a.onclick = () => { const list = vis(); openViewer(list, Math.max(0, list.findIndex(f => f.fid === a.dataset.viewF))); });
   $$('[data-save-f]').forEach(a => a.onclick = async () => { try { if (await call('exportFile', { fid: a.dataset.saveF, filename: a.dataset.n })) toast('Copy saved.'); } catch (e) { toast(e.message); } });
   $$('[data-dstatus]').forEach(s => s.onchange = async () => { const d = D.documents.find(x => x.id === s.dataset.dstatus); d.status = s.value; d.updated = new Date().toISOString(); await saveD('documents'); toast('Status updated.'); PAGES.Clients(); });
   $$('[data-more]').forEach(a => a.onclick = async () => { const d = D.documents.find(x => x.id === a.dataset.more); try { const got = await call('addFiles', {}); if (!got.length) return; d.files = [...(d.files || []), ...got]; if (d.status === 'Pending') d.status = 'Received'; await saveD('documents'); toast('File attached.'); PAGES.Clients(); } catch (e) { toast(e.message); } });
@@ -353,7 +430,7 @@ function newDocsBox(c) {
       <div class="dfiles"><label>Files</label><div class="flex"><button type="button" class="btn ghost sm d_attach">Attach files</button><span class="small muted d_flist">No file attached</span></div></div>
       <div class="dnote"><label>Note</label><input class="d_note" placeholder="Optional"></div><div class="dx"><label>&nbsp;</label><button type="button" class="btn ghost sm d_remove">Remove</button></div></div><div class="drop small muted">or drag files here</div>`;
     $('#docrows').appendChild(r.el); const q = s => r.el.querySelector(s);
-    const draw = () => q('.d_flist').innerHTML = r.files.length ? r.files.map(f => `<span class="fchip">${esc(f.filename)} <span class="muted">${fsize(f.size)}</span></span>`).join('') : 'No file attached';
+    const draw = () => { q('.d_flist').innerHTML = r.files.length ? r.files.map((f, i) => `<span class="fchip"><a data-pv="${i}" title="Preview">${esc(f.filename)}</a> <span class="muted">${fsize(f.size)}</span></span>`).join('') : 'No file attached'; r.el.querySelectorAll('[data-pv]').forEach(a => a.onclick = () => openViewer(r.files.map(f => ({ ...f, title: q('.d_name').value.trim() })), +a.dataset.pv)); };
     const add = async paths => { try { const got = await call('addFiles', { paths }); got.forEach(f => newFiles.push(f.fid)); r.files.push(...got); draw(); } catch (e) { toast(e.message); } };
     q('.d_attach').onclick = () => add(null);
     r.el.addEventListener('dragover', e => { e.preventDefault(); r.el.classList.add('over'); }); r.el.addEventListener('dragleave', () => r.el.classList.remove('over'));
@@ -412,4 +489,7 @@ PAGES.Settings = async () => {
     card.querySelector('#l_reset').onclick = async () => { D.lists = { ...DEFAULT_LISTS }; await call('setData', { key: 'lists', value: {} }); toast('Original lists restored.'); draw(); };
   };
   draw(); $('#page').appendChild(card);
+  const src = document.createElement('div'); src.className = 'small muted mt14';
+  src.textContent = 'PIN code data: ' + (await call('pinSource')) + '. Works offline.';
+  $('#page').appendChild(src);
 };
