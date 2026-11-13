@@ -8,6 +8,9 @@ async function loadD(force) {
   D.documents = (await call('getData', { key: 'documents' })) || [];
   D.lists = { ...DEFAULT_LISTS, ...((await call('getData', { key: 'lists' })) || {}) };
   D.counters = (await call('getData', { key: 'counters' })) || {};
+  D.cases = (await call('getData', { key: 'cases' })) || [];
+  D.hearings = (await call('getData', { key: 'hearings' })) || [];
+  D.team = (await call('getData', { key: 'team' })) || [];
   D.loaded = true;
   // give every client a permanent client code (older records get one now)
   const missing = D.clients.filter(c => !c.code).sort((a, b) => (a.created || '').localeCompare(b.created || ''));
@@ -20,7 +23,8 @@ function nextClientCode(when) {
   return 'C' + yy + '-' + String(D.counters[k]).padStart(4, '0');
 }
 async function saveD(...keys) { for (const k of keys) await call('setData', { key: k, value: D[k] }); }
-window.mk.onLocked(() => { D.loaded = false; D.clients = []; D.documents = []; });
+window.mk.onLocked(() => { D.loaded = false; D.clients = []; D.documents = []; D.cases = []; D.hearings = []; D.team = []; });
+const redraw = () => (PAGES[S.tab] || PAGES.soon)();
 const L = k => D.lists[k] || DEFAULT_LISTS[k] || [];
 const opts = (list, val, blank) => (blank !== undefined ? `<option value="">${blank}</option>` : '') + list.map(o => `<option ${o === val ? 'selected' : ''}>${esc(o)}</option>`).join('');
 const norm = s => String(s || '').toLowerCase().replace(/^(m\/s\.?|mr\.?|mrs\.?|ms\.?|shri|smt\.?|dr\.?)\s+/, '').replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
@@ -125,7 +129,7 @@ PAGES.Clients = async () => {
 function addrFields(p, x, label) {
   x = x || {};
   return `<div class="span4"><label>${label} (house, street, area)</label><input id="${p}_line" value="${esc(x.line || '')}"></div>
-   <div><label>PIN code</label><input id="${p}_pin" value="${esc(x.pin || '')}" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="6 digits: fills the rest"><div class="small pinmsg" id="${p}_pinmsg"></div></div>
+   <div><label>PIN code</label><input id="${p}_pin" value="${esc(x.pin || '')}" inputmode="numeric" autocomplete="off" placeholder="6 digits: fills the rest"><div class="small pinmsg" id="${p}_pinmsg"></div></div>
    <div><label>State</label><select id="${p}_state">${opts(L('states'), x.state, 'Select state')}</select></div>
    <div><label>District</label><select id="${p}_district"><option value="">Select state first</option>${x.district ? `<option selected>${esc(x.district)}</option>` : ''}</select><input id="${p}_district_other" class="hidden mt8" placeholder="Type the district name"></div>
    <div><label>City / town / area</label><input id="${p}_city" value="${esc(x.city || '')}" list="${p}_cities" autocomplete="off" placeholder="Type or pick from the list"><datalist id="${p}_cities"></datalist></div>`;
@@ -267,7 +271,7 @@ function clientForm(id, draft) {
   function addIdRow(init = {}) {
     const r = { files: [...(init.files || [])], el: document.createElement('div') }; r.el.className = 'docrow idrow';
     r.el.innerHTML = `<div class="idgrid"><div><label>ID type</label><select class="i_type">${opts(L('id_types'), init.type || '', 'Select')}</select></div>
-      <div><label>Last 4 characters only</label><input class="i_last4 upper" value="${esc(init.last4 || '')}" maxlength="4" placeholder="e.g. 4821"></div>
+      <div><label>Last 4 characters only</label><input class="i_last4 upper" value="${esc(init.last4 || '')}" placeholder="e.g. 4821"></div>
       <div class="dfiles"><label>Copy of the ID (optional)</label><div class="flex"><button type="button" class="btn ghost sm i_attach">Attach copy</button><span class="small muted i_flist"></span></div></div>
       <div class="dx"><label>&nbsp;</label><button type="button" class="btn ghost sm i_remove">Remove</button></div></div>`;
     $('#idrows').appendChild(r.el); const q = s => r.el.querySelector(s);
@@ -381,7 +385,7 @@ function clientDetail(id) {
   if (T === 'Documents') wireDocsTab(c);
 }
 
-function docsTab(c, docs) {
+function docsTab(c, docs, caseId) {
   const F = S.df || (S.df = { group: '', status: '', q: '' });
   const groups = L('doc_groups').filter(g => docs.some(d => d.group === g));
   const shown = docs.filter(d => (!F.group || d.group === F.group) && (!F.status || d.status === F.status));
@@ -392,32 +396,32 @@ function docsTab(c, docs) {
     <div><label>Group</label><select id="dg">${opts(groups, F.group, 'All groups')}</select></div><div><label>&nbsp;</label><button class="btn wide" id="d_new">+ Add document</button></div></div></div>
    <div id="d_newbox"></div>
    ${byGroup.length ? byGroup.map(([g, list]) => `<div class="card mb14 dgroup"><h3>${esc(g)} <span class="muted small">${list.length}</span></h3>
-     ${list.map(d => `<div class="docline" data-id="${d.id}" data-s="${esc((d.name + ' ' + (d.note || '') + ' ' + g).toLowerCase())}"><div class="grow"><b>${esc(d.name)}</b>${d.date ? ` <span class="muted small">dated ${fd(d.date)}</span>` : ''}${d.note ? `<div class="small muted">${esc(d.note)}</div>` : ''}
+     ${list.map(d => { const cs = !caseId && d.case_id && (D.cases || []).find(x => x.id === d.case_id); return `<div class="docline" data-id="${d.id}" data-s="${esc((d.name + ' ' + (d.note || '') + ' ' + g + ' ' + (cs ? cs.code : '')).toLowerCase())}"><div class="grow"><b>${esc(d.name)}</b>${cs ? ` <span class="codechip mono small">${esc(cs.code)}</span>` : ''}${d.date ? ` <span class="muted small">dated ${fd(d.date)}</span>` : ''}${d.note ? `<div class="small muted">${esc(d.note)}</div>` : ''}
         <div class="mt8">${(d.files || []).map(f => `<span class="fchip"><a data-view-f="${f.fid}" title="View inside Mitakshara">${esc(f.filename)}</a> <span class="muted">${fsize(f.size)}</span> <a data-view-f="${f.fid}">View</a> <a data-save-f="${f.fid}" data-n="${esc(f.filename)}">Save copy</a></span>`).join('') || '<span class="small muted">No file attached</span>'}
         <a class="small" data-more="${d.id}">+ Attach file</a></div></div>
-       <select class="w-auto" data-dstatus="${d.id}">${opts(L('doc_status'), d.status)}</select><button class="btn ghost sm" data-ddel="${d.id}" title="Delete document">Delete</button></div>`).join('')}</div>`).join('')
+       <select class="w-auto" data-dstatus="${d.id}">${opts(L('doc_status'), d.status)}</select><button class="btn ghost sm" data-ddel="${d.id}" title="Delete document">Delete</button></div>`; }).join('')}</div>`).join('')
     : `<div class="empty card"><b>${docs.length ? 'No document matches these filters.' : 'No documents yet.'}</b><div class="muted">Press <b>+ Add document</b> to add one.</div></div>`}`;
 }
-function wireDocsTab(c) {
+function wireDocsTab(c, caseId) {
   const F = S.df;
-  $$('[data-dst]').forEach(b => b.onclick = () => { F.status = b.dataset.dst; PAGES.Clients(); });
-  $('#dg').onchange = e => { F.group = e.target.value; PAGES.Clients(); };
+  $$('[data-dst]').forEach(b => b.onclick = () => { F.status = b.dataset.dst; redraw(); });
+  $('#dg').onchange = e => { F.group = e.target.value; redraw(); };
   const q = $('#dq'); const filt = () => { F.q = q.value; const t = q.value.trim().toLowerCase(); $$('.docline').forEach(r => r.classList.toggle('hidden', !!t && !r.dataset.s.includes(t))); $$('.dgroup').forEach(g => g.classList.toggle('hidden', !g.querySelector('.docline:not(.hidden)'))); };
   q.addEventListener('input', filt); filt();
   // every visible file, in screen order, so Previous / Next walks through the client's documents
   const vis = () => { const out = []; $$('.docline:not(.hidden)').forEach(r => { const d = D.documents.find(x => x.id === r.dataset.id); (d.files || []).forEach(f => out.push({ ...f, title: d.name })); }); return out; };
   $$('[data-view-f]').forEach(a => a.onclick = () => { const list = vis(); openViewer(list, Math.max(0, list.findIndex(f => f.fid === a.dataset.viewF))); });
   $$('[data-save-f]').forEach(a => a.onclick = async () => { try { if (await call('exportFile', { fid: a.dataset.saveF, filename: a.dataset.n })) toast('Copy saved.'); } catch (e) { toast(e.message); } });
-  $$('[data-dstatus]').forEach(s => s.onchange = async () => { const d = D.documents.find(x => x.id === s.dataset.dstatus); d.status = s.value; d.updated = new Date().toISOString(); await saveD('documents'); toast('Status updated.'); PAGES.Clients(); });
-  $$('[data-more]').forEach(a => a.onclick = async () => { const d = D.documents.find(x => x.id === a.dataset.more); try { const got = await call('addFiles', {}); if (!got.length) return; d.files = [...(d.files || []), ...got]; if (d.status === 'Pending') d.status = 'Received'; await saveD('documents'); toast('File attached.'); PAGES.Clients(); } catch (e) { toast(e.message); } });
+  $$('[data-dstatus]').forEach(s => s.onchange = async () => { const d = D.documents.find(x => x.id === s.dataset.dstatus); d.status = s.value; d.updated = new Date().toISOString(); await saveD('documents'); toast('Status updated.'); redraw(); });
+  $$('[data-more]').forEach(a => a.onclick = async () => { const d = D.documents.find(x => x.id === a.dataset.more); try { const got = await call('addFiles', {}); if (!got.length) return; d.files = [...(d.files || []), ...got]; if (d.status === 'Pending') d.status = 'Received'; await saveD('documents'); toast('File attached.'); redraw(); } catch (e) { toast(e.message); } });
   $$('[data-ddel]').forEach(b => b.onclick = () => {
     const d = D.documents.find(x => x.id === b.dataset.ddel);
     const m = modal(`<h2>Delete "${esc(d.name)}"?</h2><p>The document and its ${(d.files || []).length} file(s) will be removed permanently.</p><div class="flex end mt14"><button class="btn ghost" data-x>Keep it</button><button class="btn red" id="dd_go">Delete</button></div>`);
-    m.querySelector('#dd_go').onclick = async () => { for (const f of d.files || []) await call('deleteFile', { fid: f.fid }); D.documents = D.documents.filter(x => x.id !== d.id); await saveD('documents'); m.close(); toast('Document deleted.'); PAGES.Clients(); };
+    m.querySelector('#dd_go').onclick = async () => { for (const f of d.files || []) await call('deleteFile', { fid: f.fid }); D.documents = D.documents.filter(x => x.id !== d.id); await saveD('documents'); m.close(); toast('Document deleted.'); redraw(); };
   });
-  $('#d_new').onclick = () => newDocsBox(c);
+  $('#d_new').onclick = () => newDocsBox(c, caseId);
 }
-function newDocsBox(c) {
+function newDocsBox(c, caseId) {
   // reuse the same row editor as the client form
   const host = $('#d_newbox'); if (host.dataset.open) return; host.dataset.open = '1';
   host.innerHTML = `<div class="card mb14"><h3>Add documents for ${esc(c.name)}</h3><div id="docrows"></div><div class="flex between"><button class="btn ghost" id="d_add" type="button">+ Another document</button><div class="flex"><button class="btn ghost" id="nd_cancel">Cancel</button><button class="btn" id="nd_save">Save documents</button></div></div><div class="err" id="nd_err"></div></div>`;
@@ -442,14 +446,14 @@ function newDocsBox(c) {
   };
   addRow();
   $('#d_add').onclick = addRow;
-  $('#nd_cancel').onclick = async () => { for (const f of newFiles) await call('deleteFile', { fid: f }); PAGES.Clients(); };
+  $('#nd_cancel').onclick = async () => { for (const f of newFiles) await call('deleteFile', { fid: f }); redraw(); };
   $('#nd_save').onclick = async () => {
     const docs = rows.map(r => r.read()).filter(d => d.name || d.group || d.files.length);
     const err = []; docs.forEach((d, i) => { if (!d.name) err.push(`Document ${i + 1}: enter a name.`); if (!d.group) err.push(`Document ${i + 1}: choose a group.`); });
     if (!docs.length) err.push('Add at least one document.');
     if (err.length) return $('#nd_err').innerHTML = err.map(esc).join('<br>');
-    const now = new Date().toISOString(); docs.forEach(d => D.documents.push({ id: uid(), client_id: c.id, case_id: null, ...d, created: now }));
-    await saveD('documents'); toast(docs.length + ' document' + (docs.length === 1 ? '' : 's') + ' saved.'); PAGES.Clients();
+    const now = new Date().toISOString(); docs.forEach(d => D.documents.push({ id: uid(), client_id: c.id, case_id: caseId || null, ...d, created: now }));
+    await saveD('documents'); toast(docs.length + ' document' + (docs.length === 1 ? '' : 's') + ' saved.'); redraw();
   };
 }
 

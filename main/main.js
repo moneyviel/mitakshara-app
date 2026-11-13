@@ -1,6 +1,7 @@
 'use strict';
 const { app, BrowserWindow, ipcMain, Menu, shell, session, powerMonitor, dialog, protocol } = require('electron');
 const docview = require('./docview');
+const code128svg = require('../renderer/barcode.js');
 // in-app viewer: files are decrypted in memory only and served to the viewer frame
 protocol.registerSchemesAsPrivileged([{ scheme: 'mkfile', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 const path = require('path');
@@ -199,6 +200,27 @@ const handlers = {
     const err = await shell.openPath(out);
     if (err) throw new Error('Could not open: ' + err);
     return true;
+  },
+  async saveLabelPdf({ code, title, client, court, caseno }) {
+    // A4 sheet of 8 file labels with the case barcode (for file covers and almirah shelves)
+    needOpen();
+    if (!/^C\d{2}-\d{4}\/\d{2}-[A-Z]{2}$/.test(String(code))) throw new Error('Invalid case code');
+    const e = t => String(t || '').slice(0, 140).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const svg = code128svg(code, 50);
+    const one = `<div class="l"><div class="t">${e(title)}</div><div class="s">${e(client)}${caseno ? ' · No. ' + e(caseno) : ''}</div><div class="s">${e(court)}</div><div class="b">${svg}</div><div class="c">${e(code)}</div></div>`;
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{size:A4;margin:10mm}body{margin:0;font-family:Arial,sans-serif;color:#111}
+      .g{display:grid;grid-template-columns:1fr 1fr;gap:6mm}.l{border:1px dashed #999;border-radius:3mm;padding:4mm 5mm;height:58mm;box-sizing:border-box;overflow:hidden}
+      .t{font-weight:bold;font-size:13pt;line-height:1.25;max-height:2.6em;overflow:hidden}.s{font-size:9.5pt;color:#333;margin-top:1mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .b{height:15mm;margin-top:3mm}.b svg{width:100%;height:100%}.c{font:bold 12pt monospace;text-align:center;margin-top:1mm;letter-spacing:1px}</style></head><body><div class="g">${one.repeat(8)}</div></body></html>`;
+    const pw = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false } });
+    try {
+      await pw.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+      const pdf = await pw.webContents.printToPDF({ pageSize: 'A4', printBackground: true });
+      const r = (DEV && process.env.MITAKSHARA_KIT_OUT) ? { filePath: process.env.MITAKSHARA_KIT_OUT.replace(/\.pdf$/, '-label.pdf') } : await dialog.showSaveDialog(win, { title: 'Save file labels', defaultPath: path.join(app.getPath('documents'), 'Label ' + code.replace(/\//g, '_') + '.pdf'), filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+      if (r.canceled || !r.filePath) return { saved: false };
+      fs.writeFileSync(r.filePath, pdf); if (!DEV) shell.openPath(r.filePath);
+      return { saved: true, file: r.filePath };
+    } finally { pw.destroy(); }
   },
   async pinInfo({ pin }) { return pinLookup(pin); },
   async districtsOf({ state }) { const P = pins(); return P.districts[state] || []; },

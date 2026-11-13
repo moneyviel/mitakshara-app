@@ -172,10 +172,10 @@ function recoverView() {
 
 /* ---------------- App shell ---------------- */
 const TABS = [
-  ['Today', '&#9728;'], ['Clients', '&#128101;'], ['Cases', '&#128193;'], ['Diary', '&#128197;'],
+  ['Today', '&#9728;'], ['Clients', '&#128101;'], ['Cases', '&#128193;'], ['Diary', '&#128197;'], ['Team', '&#128100;'],
   ['Law Library', '&#128214;'], ['Accounts', '&#8377;'], ['Settings', '&#9881;'],
 ];
-const DONE_STAGES = 2;
+const DONE_STAGES = 3;
 const STAGES = [
   ['Secure app, licence and encrypted storage', 'Done'],
   ['Clients and documents, with typing suggestions', 'Clients'],
