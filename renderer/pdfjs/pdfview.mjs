@@ -7,8 +7,10 @@ const pagesEl = $('#pages'); const info = $('#info'); const zoomEl = $('#zoom');
 let doc = null, scale = 0, fit = true; const views = [];
 
 function fitScale(page) { const vp = page.getViewport({ scale: 1 }); return Math.max(0.4, Math.min(1.5, (pagesEl.clientWidth - 40) / vp.width)); }
-async function renderPage(v) {
-  if (v.rendered === scale) return; v.rendered = scale;
+function renderPage(v) {
+  if (v.rendered === scale && v.p) return v.p; v.rendered = scale; v.p = drawPage(v); return v.p;
+}
+async function drawPage(v) {
   const page = await doc.getPage(v.n); const vp = page.getViewport({ scale });
   const ratio = window.devicePixelRatio || 1;
   const c = document.createElement('canvas'); c.width = Math.floor(vp.width * ratio); c.height = Math.floor(vp.height * ratio);
@@ -22,7 +24,7 @@ async function layout() {
   zoomEl.textContent = Math.round(scale * 100) + '%';
   for (const v of views) {
     const p = v.n === 1 ? first : await doc.getPage(v.n); const vp = p.getViewport({ scale });
-    v.el.style.width = Math.floor(vp.width) + 'px'; v.el.style.height = Math.floor(vp.height) + 'px'; v.rendered = 0;
+    v.el.style.width = Math.floor(vp.width) + 'px'; v.el.style.height = Math.floor(vp.height) + 'px'; v.rendered = 0; v.p = null;
   }
   views.forEach(v => { if (isNear(v.el)) renderPage(v); });
 }
@@ -39,7 +41,7 @@ async function main() {
     document.body.dataset.state = 'error'; return;
   }
   for (let n = 1; n <= doc.numPages; n++) { const el = document.createElement('div'); el.className = 'pg'; pagesEl.appendChild(el); views.push({ n, el, rendered: 0 }); }
-  await layout(); onScroll(); document.body.dataset.state = 'ready'; document.body.dataset.pages = doc.numPages;
+  await layout(); await renderPage(views[0]); onScroll(); document.body.dataset.state = 'ready'; document.body.dataset.pages = doc.numPages;
 }
 pagesEl.addEventListener('scroll', onScroll);
 $('#zin').onclick = () => { fit = false; scale = Math.min(4, scale * 1.2); layout(); };
