@@ -6,13 +6,14 @@ const _loadD5 = loadD;
 loadD = async function (force) {
   const first = !D.loaded || force; await _loadD5(force);
   if (first) for (const k of ['templates', 'drafts', 'law_items', 'library']) D[k] = (await call('getData', { key: k })) || [];
-  if (first) { D.law_sources = (await call('getData', { key: 'law_sources' })) || DEFAULT_LAW_SOURCES; D.research_sources = (await call('getData', { key: 'research_sources' })) || DEFAULT_RESEARCH; D.law_settings = (await call('getData', { key: 'law_settings' })) || { keywords: '' }; }
+  if (first) { D.law_sources = (await call('getData', { key: 'law_sources' })) || DEFAULT_LAW_SOURCES; D.research_sources = (await call('getData', { key: 'research_sources' })) || DEFAULT_RESEARCH.map(x => ({ ...x })); DEFAULT_RESEARCH.forEach((x, i) => { if (!D.research_sources.some(y => y.id === x.id)) D.research_sources.splice(i, 0, { ...x }); }); D.law_settings = (await call('getData', { key: 'law_settings' })) || { keywords: '' }; }
 };
 window.mk.onLocked(() => { D.templates = []; D.drafts = []; D.law_items = []; D.library = []; D.research_sources = []; });
 const DEFAULT_LAW_SOURCES = [
   { id: 'egazette', name: 'e-Gazette of India (Central)', url: 'https://egazette.gov.in/', type: 'egazette', scope: 'Central', on: true },
 ];
 const DEFAULT_RESEARCH = [
+  { id: 'ecourtsindia', name: 'eCourts (eCourtsIndia) — case details by CNR', kind: 'api', token: '', link: 'https://services.ecourts.gov.in/ecourtindia_v6/', on: true },
   { id: 'indiankanoon', name: 'Indian Kanoon', kind: 'api', token: '', link: 'https://indiankanoon.org/search/?formInput={q}', on: true },
   { id: 'casemine', name: 'CaseMine', kind: 'link', link: 'https://www.casemine.com/search/in?q={q}', on: true },
   { id: 'supremetoday', name: 'SupremeToday', kind: 'link', link: 'https://supremetoday.ai/', on: true },
@@ -232,7 +233,7 @@ PAGES['Law Library'] = async () => {
        <div><label>Type</label><select id="ls_type"><option value="page">Web page with links / PDFs</option><option value="rss">RSS / news feed</option><option value="egazette">e-Gazette style list</option></select></div><div><label>&nbsp;</label><button class="btn ghost wide" id="ls_add">Add source</button></div></div>
       <h3 class="mt14">Keywords to highlight</h3><div class="flex"><input id="ls_kw" class="grow" value="${esc(D.law_settings.keywords || '')}" placeholder="e.g. Law and Justice, Rajasthan, BNSS, Home Affairs"><button class="btn ghost sm" id="ls_kwsave">Save</button></div></div>
      <div class="card"><h2>Research sources</h2><div class="small muted mb14">Your subscriptions and free sites. Tokens are stored encrypted on this computer.</div>
-      ${D.research_sources.map(s => `<div class="row"><span><b>${esc(s.name)}</b><div class="small muted">${s.kind === 'api' ? 'Search inside Mitakshara with your API token' : 'Opens in your browser'}</div></span><span class="flex">${s.kind === 'api' ? `<input type="password" class="w-auto" data-rstok="${s.id}" placeholder="${s.token ? 'Token saved: ...' + esc(s.token.slice(-4)) : 'Paste API token'}">` : ''}<label class="check"><input type="checkbox" data-rson="${s.id}" ${s.on !== false ? 'checked' : ''}> On</label>${s.custom ? `<button class="btn ghost sm" data-rsdel="${s.id}">Remove</button>` : ''}</span></div>`).join('')}
+      ${D.research_sources.map(s => `<div class="row"><span><b>${esc(s.name)}</b><div class="small muted">${s.id === 'ecourtsindia' ? 'Fetches case details, dates and orders by CNR (in Cases)' : s.kind === 'api' ? 'Search inside Mitakshara with your API token' : 'Opens in your browser'}</div></span><span class="flex">${s.kind === 'api' ? `<input type="password" class="w-auto" data-rstok="${s.id}" placeholder="${s.token ? 'Token saved: ...' + esc(s.token.slice(-4)) : 'Paste API token'}">` : ''}<label class="check"><input type="checkbox" data-rson="${s.id}" ${s.on !== false ? 'checked' : ''}> On</label>${s.custom ? `<button class="btn ghost sm" data-rsdel="${s.id}">Remove</button>` : ''}</span></div>`).join('')}
       <div class="flex end mt8"><button class="btn ghost sm" id="rs_save">Save tokens</button></div>
       <h3 class="mt14">Add a research site</h3><div class="grid g2"><div><label>Name</label><input id="rn_name"></div><div><label>Search address ({q} = your words)</label><input id="rn_link" placeholder="https://site/search?q={q}"></div></div><div class="flex end mt8"><button class="btn ghost sm" id="rn_add">Add</button></div></div></div>`;
   }

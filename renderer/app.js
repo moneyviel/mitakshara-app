@@ -20,7 +20,7 @@ function modal(html) {
   m.innerHTML = `<div class="card"><button class="btn ghost sm x" data-x>Close</button>${html}</div>`;
   m.addEventListener('click', e => { if (e.target === m || e.target.hasAttribute('data-x')) m.remove(); });
   document.body.appendChild(m); m.close = () => m.remove();
-  const f = m.querySelector('input'); if (f) setTimeout(() => f.focus(), 30);
+  const f = m.querySelector('input'); if (f) setTimeout(() => { if (!m.contains(document.activeElement)) f.focus(); }, 30);
   return m;
 }
 function busy(btn, text) { const o = btn.textContent; btn.disabled = true; btn.textContent = text; return () => { btn.disabled = false; btn.textContent = o; }; }

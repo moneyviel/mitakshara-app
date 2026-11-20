@@ -22,6 +22,7 @@ const GST_MODES = {
   forward: { label: 'GST charged on this bill (18%)', doc: 'Tax Invoice', note: '' },
   none: { label: 'No GST statement (fee bill / memo)', doc: 'Fee Bill', note: '' },
 };
+const BILL_STYLES = ['Classic', 'Modern', 'Minimal', 'Tabular (GST table)'];
 const DOC_TYPES = ['Tax Invoice', 'Invoice', 'Bill of Supply', 'Fee Bill', 'Proforma Invoice', 'Receipt'];
 const SAC = [['998212', 'Legal advisory and representation (other areas of law)'], ['998211', 'Legal advisory and representation (criminal law)'], ['998213', 'Legal documentation and certification'], ['998214', 'Arbitration and mediation'], ['998215', 'Other legal services']];
 const LINE_SUGGEST = ['Professional fee', 'Appearance fee', 'Drafting fee', 'Consultation fee', 'Conference fee', 'Retainer fee', 'Clerkage', 'Court fee (reimbursement)', 'Stamp paper (reimbursement)', 'Photocopy / typing (reimbursement)', 'Travel (reimbursement)', 'Certified copy charges (reimbursement)'];
@@ -60,6 +61,7 @@ const suggestMode = c => !c ? 'exempt' : ['Company', 'Partnership firm', 'LLP', 
 
 /* ---------- invoice as printable HTML (3 designs) ---------- */
 function invoiceHtml(inv) {
+  if (/^Tabular/.test(inv.style || '')) return invoiceHtmlTabular(inv);
   const P = D.practice; const c = clientById(inv.client_id) || {}; const k = inv.case_id ? caseById(inv.case_id) : null; const T = invCalc(inv);
   const e = esc; const adr = a => [a?.line, a?.city, a?.district, a?.state, a?.pin].filter(Boolean).join(', ');
   const style = inv.style || P.style || 'Classic';
@@ -95,6 +97,49 @@ function invoiceHtml(inv) {
   <div class="foot"><div>${P.bank_name || P.upi ? `<div class="lbl">Payment details</div>${P.bank_name ? `${e(P.bank_holder || P.firm || P.advocate || '')}<br>${e(P.bank_name)}${P.bank_acc ? ' · A/c ' + e(P.bank_acc) : ''}${P.bank_ifsc ? '<br>IFSC ' + e(P.bank_ifsc) : ''}` : ''}${P.upi ? '<br>UPI: ' + e(P.upi) : ''}` : ''}${P.terms ? `<div class="sub">${e(P.terms)}</div>` : ''}</div>
    <div class="sign">For ${e(P.firm || P.advocate || '')}<div class="line">${e(P.sign_name || P.advocate || 'Advocate')}</div></div></div>
   </body></html>`;
+}
+
+/* "Tabular (GST table)" design: a grid bill with the GST split (provider / recipient) table,
+   as some corporate clients ask for. Colours follow the usual Excel bill look. */
+function invoiceHtmlTabular(inv) {
+  const P = D.practice; const c = clientById(inv.client_id) || {}; const k = inv.case_id ? caseById(inv.case_id) : null; const T = invCalc(inv); const e = esc;
+  const adr = a => [a?.line, a?.city, a?.district, a?.state, a?.pin].filter(Boolean).join(', ');
+  const lines = (inv.lines || []).filter(l => l.desc || +l.amount);
+  const tax = r2(T.cgst + T.sgst + T.igst); const rcm = inv.gst_mode === 'rcm', fwd = inv.gst_mode === 'forward', noTax = !rcm && !fwd;
+  const n2 = v => (Math.round((+v || 0) * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const caseRef = l => l.ref || (k ? [k.case_no ? k.case_no + (k.case_year ? '/' + k.case_year : '') : '', k.code].filter(Boolean)[0] : '') || '—';
+  const firm = P.firm || P.advocate || 'Advocate';
+  const gstRows = noTax ? `<tr><td>GST</td><td class="n" colspan="3">${inv.gst_mode === 'exempt' ? 'Exempt' : 'Not applicable'}</td></tr>`
+    : (T.intra ? [['CGST 9%', T.cgst], ['SGST 9%', T.sgst]] : [['IGST 18%', T.igst]]).map(([t, v]) => `<tr><td>${t}</td><td class="n">${n2(v)}</td><td class="n">${n2(rcm ? 0 : v)}</td><td class="n">${n2(rcm ? v : 0)}</td></tr>`).join('') + `<tr class="b"><td>Total GST 18%</td><td class="n">${n2(tax)}</td><td class="n">${n2(rcm ? 0 : tax)}</td><td class="n">${n2(rcm ? tax : 0)}</td></tr>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  @page{size:A4;margin:12mm}body{margin:0;font:11.5pt Cambria,Georgia,'Times New Roman',serif;color:#111}
+  table{width:100%;border-collapse:collapse}td,th{border:1px solid #333;padding:5px 7px;vertical-align:top}th{font-weight:bold}
+  .n{text-align:right;white-space:nowrap}.c{text-align:center}.b td{font-weight:bold}
+  .t0{background:#BDD7EE;text-align:center;font-weight:bold;letter-spacing:1px}.t1{background:#9DC3E6;text-align:center;font-size:20pt;font-weight:bold;padding:8px}
+  .t2{background:#DDEBF7;text-align:center;font-size:10pt}.y{background:#FFFF00}.bl{background:#DDEBF7}
+  .small{font-size:9.5pt}.sign{height:58px}
+  </style></head><body><table>
+  <tr><td colspan="4" class="t0">${e(String(inv.doc_type || 'Invoice').toUpperCase())}</td></tr>
+  <tr><td colspan="4" class="t1">${e(firm)}</td></tr>
+  <tr><td colspan="4" class="t2">${e([P.address, P.city, P.state].filter(Boolean).join(', '))}${P.pin ? '-' + e(P.pin) : ''}</td></tr>
+  <tr><td colspan="2" class="t2" style="text-align:left">${P.phone ? 'Ph.: ' + e(P.phone) : ''}</td><td colspan="2" class="t2" style="text-align:right">${P.email ? 'E-mail: ' + e(P.email) : ''}</td></tr>
+  <tr class="y b"><td colspan="2">Name And Address</td><td class="c">BILL NO.</td><td class="c">${e(inv.no)}</td></tr>
+  <tr><td colspan="2" rowspan="2"><b>${e(c.name)}</b><br>${e(adr(c.addr))}${c.gstin ? '<br>GSTIN: ' + e(c.gstin) : ''}</td><td class="c">DATE</td><td class="c">${fd(inv.date)}</td></tr>
+  <tr><td class="c">CLIENT CODE</td><td class="c">${e(c.code || '')}</td></tr>
+  <tr class="y"><td colspan="4" class="c"><b>Kind Attention: ${e(inv.attention || '____________')}</b></td></tr>
+  <tr class="bl"><th class="c" style="width:52px">S.NO.</th><th class="c">PARTICULARS</th><th class="c" style="width:140px">Case No/F. No.</th><th class="c" style="width:120px">Amount (INR)</th></tr>
+  ${lines.map((l, i) => `<tr><td class="c">${i + 1}</td><td>${e(l.desc)}${l.kind === 'reimb' ? ' <i class="small">(reimbursement)</i>' : ''}</td><td class="c">${e(caseRef(l))}</td><td class="n">${n2(l.amount)}</td></tr>`).join('')}
+  <tr class="b"><td colspan="3" class="n">Total</td><td class="n">${n2(T.fees + T.reimb)}</td></tr>
+  <tr class="y small b"><td>Particulars</td><td class="n">Total Tax Payable 18%</td><td class="n">Payable by Service Provider ${rcm ? 'Nil' : '100'}%</td><td class="n">Payable by Service Receiver ${rcm ? '100' : 'Nil'}%</td></tr>
+  ${gstRows}
+  <tr class="bl b"><td colspan="3" class="n">Grand Total</td><td class="n">${n2(T.total)}</td></tr>
+  <tr><td colspan="4" class="small"><i>Rupees ${inWords(T.total)} only</i></td></tr>
+  <tr class="y"><td colspan="2">GST Registration No. ${e(P.gstin || '')}</td><td colspan="2" class="small">${rcm ? 'N.A - GST on Legal Services is payable by the recipient of service on reverse charge basis.' : inv.gst_mode === 'exempt' ? 'Legal services to a non-business client are exempt from GST.' : fwd ? 'GST charged as above.' : ''}</td></tr>
+  <tr class="y"><td colspan="4">Service Category:- Legal Services (SAC ${e(inv.sac || '998212')})<br>PAN - ${e(P.pan || '')}</td></tr>
+  <tr class="y"><td colspan="2"><b><u>DETAILS OF BANK ACCOUNT FOR REMITTANCE OF INVOICE</u></b><br>${e((P.bank_holder || firm).toUpperCase())}<br>A/c No. - ${e(P.bank_acc || '')}<br>${e(P.bank_name || '')}<br>IFSC - ${e(P.bank_ifsc || '')}${P.upi ? '<br>UPI - ' + e(P.upi) : ''}</td>
+   <td colspan="2" class="c"><b>For ${e(firm)}</b><div class="sign"></div><b>Authorised Signatory</b></td></tr>
+  ${inv.notes ? `<tr><td colspan="4" class="small">${e(inv.notes).replace(/\n/g, '<br>')}</td></tr>` : ''}
+  </table></body></html>`;
 }
 
 /* ---------- Accounts page ---------- */
@@ -200,19 +245,21 @@ function practiceModal() {
   const m = modal(`<h2>Practice details</h2><div class="small muted">Printed on bills and letters. Bank details stay only on this computer, encrypted.</div><div class="grid g2 mt14">
    <div><label>Advocate's name *</label><input id="p_advocate" value="${v('advocate') || esc(S.status.vault.profile?.name || '')}"></div><div><label>Chamber / firm name</label><input id="p_firm" value="${v('firm')}" placeholder="e.g. Tak Law Chambers"></div>
    <div><label>Bar enrolment no.</label><input id="p_enrolment" value="${v('enrolment')}"></div><div><label>Phone</label><input id="p_phone" value="${v('phone')}"></div>
-   <div class="span2"><label>Office address</label><input id="p_address" value="${v('address')}"></div>
-   <div><label>City</label><input id="p_city" value="${v('city')}"></div><div><label>State * (decides CGST+SGST or IGST)</label><select id="p_state">${opts(L('states'), P.state, 'Select')}</select></div>
-   <div><label>PIN</label><input id="p_pin" value="${v('pin')}" inputmode="numeric"></div><div><label>Email</label><input id="p_email" value="${v('email')}"></div>
+   <div class="span2"><label>Email</label><input id="p_email" value="${v('email')}"></div>
+   <div class="span2 g4 paddr">${addrFields('pa', { line: P.address, city: P.city, district: P.district, state: P.state, pin: P.pin }, 'Office address')}</div>
+   <div class="span2 small muted">The state decides whether a bill shows CGST + SGST or IGST.</div>
    <div><label>PAN</label><input id="p_pan" value="${v('pan')}" class="upper"></div><div><label>GSTIN (only if registered)</label><input id="p_gstin" value="${v('gstin')}" class="upper"></div>
    <div><label>Bank name</label><input id="p_bank_name" value="${v('bank_name')}"></div><div><label>Account holder</label><input id="p_bank_holder" value="${v('bank_holder')}"></div>
    <div><label>Account number</label><input id="p_bank_acc" value="${v('bank_acc')}"></div><div><label>IFSC</label><input id="p_bank_ifsc" value="${v('bank_ifsc')}" class="upper"></div>
    <div><label>UPI ID</label><input id="p_upi" value="${v('upi')}"></div><div><label>Bill number prefix</label><input id="p_inv_prefix" value="${v('inv_prefix') || 'INV'}" maxlength="6" class="upper"></div>
-   <div><label>Bill design</label><select id="p_style">${opts(['Classic', 'Modern', 'Minimal'], P.style || 'Classic')}</select></div><div><label>Name under signature</label><input id="p_sign_name" value="${v('sign_name')}"></div>
+   <div><label>Usual bill design</label><select id="p_style">${opts(BILL_STYLES, P.style || 'Classic')}</select></div><div><label>Name under signature</label><input id="p_sign_name" value="${v('sign_name')}"></div>
    <div class="span2"><label>Terms printed on bills</label><input id="p_terms" value="${v('terms')}" placeholder="e.g. Payment within 15 days. Please quote the bill number."></div></div>
    <div class="err" id="p_err"></div><div class="flex end mt14"><button class="btn ghost" data-x>Cancel</button><button class="btn" id="p_go">Save</button></div>`);
-  m.querySelector('.card').classList.add('mwide');
+  m.querySelector('.card').classList.add('mwide'); let PA = null; wireAddr('pa').then(r => PA = r);
   m.querySelector('#p_go').onclick = async () => {
-    const o = {}; ['advocate', 'firm', 'enrolment', 'phone', 'address', 'city', 'state', 'pin', 'email', 'pan', 'gstin', 'bank_name', 'bank_holder', 'bank_acc', 'bank_ifsc', 'upi', 'inv_prefix', 'style', 'sign_name', 'terms'].forEach(k => o[k] = $('#p_' + k).value.trim());
+    const o = {}; ['advocate', 'firm', 'enrolment', 'phone', 'email', 'pan', 'gstin', 'bank_name', 'bank_holder', 'bank_acc', 'bank_ifsc', 'upi', 'inv_prefix', 'style', 'sign_name', 'terms'].forEach(k => o[k] = $('#p_' + k).value.trim());
+    const ad = PA ? PA.read() : {}; Object.assign(o, { address: ad.line || '', city: ad.city || '', district: ad.district || '', state: ad.state || '', pin: ad.pin || '' });
+    if (o.pin && !/^[1-9]\d{5}$/.test(o.pin)) return $('#p_err').textContent = 'PIN code should be exactly 6 digits.';
     ['pan', 'gstin', 'bank_ifsc', 'inv_prefix'].forEach(k => o[k] = o[k].toUpperCase());
     const err = [];
     if (!o.advocate) err.push("Enter the advocate's name."); if (!o.state) err.push('Choose the state.');
@@ -235,7 +282,9 @@ function invoiceForm(id, presetClient, presetCase) {
      <div class="span2"><label>Client *</label><select id="i_client"><option value="">Select client</option>${clientsSorted.map(c => `<option value="${c.id}" ${c.id === inv.client_id ? 'selected' : ''}>${esc(c.code + ' · ' + c.name)} (${esc(c.type)})</option>`).join('')}</select></div>
      <div class="span2"><label>Case (optional)</label><select id="i_case"></select></div>
      <div><label>Bill date *</label><input id="i_date" type="date" value="${esc(inv.date)}"></div><div><label>Pay by</label><input id="i_due" type="date" value="${esc(inv.due_date || '')}"></div>
-     <div><label>Place of supply (client's state)</label><select id="i_place">${opts(L('states'), inv.place_state || '', 'Select')}</select></div><div><label>Design</label><select id="i_style">${opts(['Classic', 'Modern', 'Minimal'], inv.style)}</select></div></div></section>
+     <div><label>Place of supply (client's state)</label><select id="i_place">${opts(L('states'), inv.place_state || '', 'Select')}</select></div><div><label>Design</label><select id="i_style">${opts(BILL_STYLES, inv.style)}</select></div>
+     <div class="span2"><label>Kind attention (person at the client)</label><input id="i_attn" value="${esc(inv.attention || '')}" placeholder="e.g. Mr. R. K. Mehta, GM - Legal"></div>
+     <div class="span2"><label>&nbsp;</label><label class="check"><input type="checkbox" id="i_keepstyle"> Always use this design for this client</label></div></div></section>
     <section class="card"><h2>2. GST treatment</h2><div class="seg" id="i_gst">${Object.entries(GST_MODES).map(([k, g]) => `<button type="button" data-g="${k}" class="${inv.gst_mode === k ? 'on' : ''}">${esc(g.label)}</button>`).join('')}</div>
      <div class="small muted mt8" id="i_gsthint"></div><div class="g4 mt14"><div><label>Document title</label><select id="i_doctype">${opts(DOC_TYPES, inv.doc_type)}</select></div><div class="span2"><label>SAC code</label><select id="i_sac">${SAC.map(([c, t]) => `<option value="${c}" ${c === inv.sac ? 'selected' : ''}>${c} · ${esc(t)}</option>`).join('')}</select></div></div></section>
     <section class="card"><h2>3. Fees and reimbursements</h2><div id="i_lines"></div><button type="button" class="btn ghost sm" id="i_addl">+ Add line</button><datalist id="i_sugg">${LINE_SUGGEST.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
@@ -245,17 +294,19 @@ function invoiceForm(id, presetClient, presetCase) {
   const fillCases = () => { const cid = $('#i_client').value; const cs = D.cases.filter(k => k.client_id === cid); $('#i_case').innerHTML = `<option value="">No particular case</option>` + cs.map(k => `<option value="${k.id}" ${k.id === inv.case_id ? 'selected' : ''}>${esc(k.code + ' · ' + caseTitle(k))}</option>`).join(''); };
   const setMode = mode => { inv.gst_mode = mode; $$('#i_gst button').forEach(b => b.classList.toggle('on', b.dataset.g === mode)); if (!id || !inv.doc_type_touched) $('#i_doctype').value = GST_MODES[mode].doc;
     const c = clientById($('#i_client').value); $('#i_gsthint').textContent = (mode === 'forward' && !D.practice.gstin ? 'Your GSTIN is not in Practice details. Add it before charging GST. ' : '') + (GST_MODES[mode].note || '') + (c ? ` Suggested for ${c.type}: ${GST_MODES[suggestMode(c)].label}.` : ''); calc(); };
-  $('#i_client').onchange = () => { const c = clientById($('#i_client').value); fillCases(); if (c && c.addr?.state) $('#i_place').value = c.addr.state; if (c && !id) setMode(suggestMode(c)); };
+  $('#i_client').onchange = () => { const c = clientById($('#i_client').value); fillCases(); if (c && c.addr?.state) $('#i_place').value = c.addr.state; if (c && !id) setMode(suggestMode(c));
+    if (c && !id) { $('#i_style').value = c.bill_style || D.practice.style || 'Classic'; $('#i_keepstyle').checked = !!c.bill_style; if (c.bill_attention && !$('#i_attn').value) $('#i_attn').value = c.bill_attention; } };
+  if (id) { const c0 = clientById(inv.client_id); $('#i_keepstyle').checked = !!(c0 && c0.bill_style === inv.style); }
   $('#i_doctype').onchange = () => inv.doc_type_touched = true;
   $$('#i_gst button').forEach(b => b.onclick = () => setMode(b.dataset.g));
   const rows = [];
-  const addLine = l => { const el = document.createElement('div'); el.className = 'lrow'; el.innerHTML = `<input class="l_desc" list="i_sugg" value="${esc(l.desc || '')}" placeholder="Description"><select class="l_kind"><option value="fee" ${l.kind !== 'reimb' ? 'selected' : ''}>Fee (taxable)</option><option value="reimb" ${l.kind === 'reimb' ? 'selected' : ''}>Reimbursement</option></select><input class="l_amt" value="${esc(l.amount ?? '')}" inputmode="decimal" placeholder="Amount"><button type="button" class="btn ghost sm l_rm">&times;</button>`;
+  const addLine = l => { const el = document.createElement('div'); el.className = 'lrow'; el.innerHTML = `<input class="l_desc" list="i_sugg" value="${esc(l.desc || '')}" placeholder="Description"><input class="l_ref" value="${esc(l.ref || '')}" placeholder="Case No. / File No."><select class="l_kind"><option value="fee" ${l.kind !== 'reimb' ? 'selected' : ''}>Fee (taxable)</option><option value="reimb" ${l.kind === 'reimb' ? 'selected' : ''}>Reimbursement</option></select><input class="l_amt" value="${esc(l.amount ?? '')}" inputmode="decimal" placeholder="Amount"><button type="button" class="btn ghost sm l_rm">&times;</button>`;
     $('#i_lines').appendChild(el); const r = { el }; rows.push(r);
     el.querySelector('.l_desc').addEventListener('change', e => { if (/reimbursement/i.test(e.target.value)) el.querySelector('.l_kind').value = 'reimb'; calc(); });
     el.querySelector('.l_amt').addEventListener('input', e => { const v = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1'); if (v !== e.target.value) e.target.value = v; calc(); });
     el.querySelector('.l_kind').onchange = calc; el.querySelector('.l_rm').onclick = () => { rows.splice(rows.indexOf(r), 1); el.remove(); calc(); };
-    r.read = () => ({ desc: el.querySelector('.l_desc').value.trim(), kind: el.querySelector('.l_kind').value, amount: el.querySelector('.l_amt').value }); };
-  const collect = () => ({ ...inv, client_id: $('#i_client').value, case_id: $('#i_case').value, date: $('#i_date').value, due_date: $('#i_due').value, place_state: $('#i_place').value, style: $('#i_style').value, doc_type: $('#i_doctype').value, sac: $('#i_sac').value, notes: $('#i_notes').value.trim(), lines: rows.map(r => r.read()).filter(l => l.desc || l.amount) });
+    r.read = () => ({ desc: el.querySelector('.l_desc').value.trim(), ref: el.querySelector('.l_ref').value.trim(), kind: el.querySelector('.l_kind').value, amount: el.querySelector('.l_amt').value }); };
+  const collect = () => ({ ...inv, client_id: $('#i_client').value, case_id: $('#i_case').value, date: $('#i_date').value, due_date: $('#i_due').value, place_state: $('#i_place').value, style: $('#i_style').value, doc_type: $('#i_doctype').value, sac: $('#i_sac').value, notes: $('#i_notes').value.trim(), attention: $('#i_attn').value.trim(), lines: rows.map(r => r.read()).filter(l => l.desc || l.amount) });
   function calc() { const o = collect(); const t = invCalc({ ...o, id: '__' }); const P = D.practice;
     $('#i_tot').innerHTML = `<div class="row"><span>Fees</span><b>${money(t.fees)}</b></div>${t.reimb ? `<div class="row"><span>Reimbursements</span><b>${money(t.reimb)}</b></div>` : ''}
      ${o.gst_mode === 'forward' ? (t.intra ? `<div class="row"><span>CGST 9% + SGST 9%</span><b>${money(t.cgst + t.sgst)}</b></div>` : `<div class="row"><span>IGST 18%</span><b>${money(t.igst)}</b></div>`) : ''}
@@ -272,6 +323,7 @@ function invoiceForm(id, presetClient, presetCase) {
   $('#if_save').onclick = async () => {
     const o = collect(); const e = validate(o); if (e.length) { $('#if_err').innerHTML = e.map(esc).join('<br>'); return; }
     const now = new Date().toISOString();
+    const cl = clientById(o.client_id); if (cl) { cl.bill_style = $('#i_keepstyle').checked ? o.style : (cl.bill_style === o.style ? '' : cl.bill_style || ''); if (o.attention) cl.bill_attention = o.attention; await saveD('clients'); }
     if (!id) { o.id = uid(); o.no = nextInvNo(o.doc_type, o.date); o.status = 'Issued'; o.created = now; D.invoices.push(o); } else { o.updated = now; D.invoices[D.invoices.findIndex(i => i.id === id)] = o; }
     await saveD('invoices', 'counters'); toast(`Bill ${o.no} saved.`); invoiceView(o.id);
   };

@@ -71,7 +71,10 @@ const VERSION = app.getVersion();
 function createWindow() {
   win = new BrowserWindow({
     width: 1360, height: 860, minWidth: 980, minHeight: 640, show: false,
-    title: 'Mitakshara', backgroundColor: '#F7F5F0',
+    title: 'Mitakshara', backgroundColor: '#0F2A44',
+    // our own title bar: the app's top bar holds search and actions; Windows keeps its native min/max/close buttons
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } }
+      : { titleBarStyle: 'hidden', titleBarOverlay: { color: '#0F2A44', symbolColor: '#E9DCC4', height: 46 } }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true,
@@ -83,10 +86,21 @@ function createWindow() {
   // never navigate away from the app, never open new windows inside it
   win.webContents.on('will-navigate', e => e.preventDefault());
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+  // keyboard shortcuts (Windows has no menu bar any more)
+  win.webContents.on('before-input-event', (e, i) => {
+    if (i.type !== 'keyDown' || !(i.control || i.meta)) return;
+    const k = i.key.toLowerCase(); const wc = win.webContents;
+    if (k === 'l' && !i.shift) { e.preventDefault(); lockNow('manual'); }
+    else if (k === '=' || k === '+') { e.preventDefault(); wc.setZoomLevel(Math.min(3, wc.getZoomLevel() + 0.5)); }
+    else if (k === '-') { e.preventDefault(); wc.setZoomLevel(Math.max(-3, wc.getZoomLevel() - 0.5)); }
+    else if (k === '0') { e.preventDefault(); wc.setZoomLevel(0); }
+    else if (DEV && i.shift && k === 'i') { e.preventDefault(); wc.toggleDevTools(); }
+  });
 }
 
 function menu() {
   const mac = process.platform === 'darwin';
+  if (!mac) { Menu.setApplicationMenu(null); return; } // Windows: clean window, no 1990s menu bar
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(mac ? [{ role: 'appMenu' }] : []),
     { label: 'File', submenu: [{ label: 'Lock now', accelerator: 'CmdOrCtrl+L', click: () => lockNow('manual') }, { type: 'separator' }, mac ? { role: 'close' } : { role: 'quit' }] },
@@ -230,7 +244,7 @@ async function needLicence() { const s = await licence.status(); if (!s.valid) t
 function needOpen() { if (!vault.isUnlocked()) throw new Error('Mitakshara is locked. Please sign in again.'); }
 
 const ctx = { needOpen, storeBuffer, readStored, tempPut, win: () => win, vault: () => vault, licence: () => licence, DEV, testOut: () => (DEV && process.env.MITAKSHARA_TEST_OUT) || '', version: VERSION };
-for (const mod of ['./docsout', './dsc', './ai', './net', './backup', './update']) Object.assign(handlers, require(mod)(ctx));
+for (const mod of ['./docsout', './dsc', './ai', './net', './backup', './update', './ecourts']) Object.assign(handlers, require(mod)(ctx));
 setInterval(() => { handlers.backupAutoTick().catch(() => {}); }, 30 * 60000);
 
 ipcMain.handle('mk', async (e, name, args) => {
